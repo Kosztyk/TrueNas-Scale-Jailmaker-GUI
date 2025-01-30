@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Jailmaker Paths</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Define Jailmaker Paths</h1>
+    <form id="pathsForm">
+      <label for="path1">Path 1:</label>
+      <input type="text" id="path1">
+
+      <label for="path2">Path 2:</label>
+      <input type="text" id="path2">
+
+      <label for="path3">Path 3:</label>
+      <input type="text" id="path3">
+
+      <button type="submit">Save & Finish</button>
+    </form>
+    <div id="response"></div>
+  </div>
+
+  <script>
+    document.getElementById('pathsForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const path1 = document.getElementById('path1').value;
+      const path2 = document.getElementById('path2').value;
+      const path3 = document.getElementById('path3').value;
+      const paths = [path1, path2, path3].filter(Boolean);
+      const username = localStorage.getItem('username');
+      const responseBox = document.getElementById('response');
+
+      responseBox.textContent = 'Saving paths...';
+
+      try {
+        const res = await fetch('/api/setPaths', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, paths }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          responseBox.textContent = 'Paths saved! Redirecting...';
+          setTimeout(() => {
+            window.location.href = '/manage.html';
+          }, 1000);
+        } else {
+          responseBox.textContent = 'Error: ' + data.message;
+        }
+      } catch (err) {
+        responseBox.textContent = 'Error: ' + err.toString();
+      }
+    });
+  </script>
+</body>
+</html>
+

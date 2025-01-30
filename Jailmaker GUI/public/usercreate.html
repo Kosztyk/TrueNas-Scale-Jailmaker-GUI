@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Welcome to Jailmaker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Welcome to Jailmaker</h1>
+    <p>Select an option:</p>
+    <div class="options">
+      <button id="btnCreateUser">Create New User</button>
+      <button id="btnLogin">Log In</button>
+    </div>
+    <div id="response"></div>
+  </div>
+
+  <script>
+    document.getElementById('btnCreateUser').addEventListener('click', () => {
+      window.location.href = '/serverdetails.html';
+    });
+
+    document.getElementById('btnLogin').addEventListener('click', async () => {
+      const username = prompt('Enter your username:');
+      const password = prompt('Enter your password:');
+      const responseBox = document.getElementById('response');
+      responseBox.textContent = 'Logging in...';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          localStorage.setItem('username', username);
+          responseBox.textContent = 'Login successful! Redirecting...';
+          setTimeout(() => {
+            window.location.href = '/manage.html';
+          }, 1000);
+        } else {
+          responseBox.textContent = 'Error: ' + data.message;
+        }
+      } catch (err) {
+        responseBox.textContent = 'Error: ' + err.toString();
+      }
+    });
+  </script>
+</body>
+</html>
+

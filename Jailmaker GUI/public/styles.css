@@ -1,0 +1,355 @@
+/* General Styles */
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f9f9f9;
+  margin: 0;
+  padding: 0;
+}
+
+h1, h2 {
+  color: #333;
+  text-align: center;
+}
+
+.container {
+  max-width: 600px;
+  margin: 50px auto;
+  padding: 20px;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Form Styles */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem; /* Consistent spacing */
+}
+
+label {
+  font-weight: bold;
+  color: #555;
+}
+
+input {
+  padding: 0.625rem;
+  border: 1px solid #ccc;
+  border-radius: 0.3125rem;
+  font-size: 1rem;
+}
+
+button {
+  padding: 0.625rem;
+  font-size: 1rem;
+  font-weight: bold;
+  color: #fff;
+  background-color: #007bff;
+  border: none;
+  border-radius: 0.3125rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+button:focus {
+  outline: 2px solid #0056b3;
+  outline-offset: 2px;
+}
+
+/* Response Message Styles */
+#response {
+  margin-top: 1.25rem;
+  font-size: 0.875rem;
+  color: #d9534f;
+  text-align: center;
+}
+
+/* Options on Login Page */
+.options {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 1.25rem;
+}
+
+.options button {
+  width: 45%;
+}
+
+/* Manage Sandboxes Page */
+body, html {
+  height: 100%;
+}
+
+/* Container for Panes */
+#container {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Left Pane */
+#left-pane {
+  flex: 1;
+  max-width: 20%;
+  background-color: #f3f4f6;
+  padding: 0.625rem;
+  border-right: 1px solid #ddd;
+  overflow-y: auto;
+}
+
+#left-pane h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.625rem;
+  text-align: center;
+}
+
+#showAllBtn {
+  display: block;
+  width: 100%;
+  padding: 0.625rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 0.3125rem;
+  cursor: pointer;
+  margin-bottom: 0.9375rem;
+}
+
+#showAllBtn:hover {
+  background-color: #0056b3;
+}
+
+#paths-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-bottom: 2.5rem;
+}
+
+.path-box {
+  padding: 0.625rem;
+  border: 1px solid #ddd;
+  border-radius: 0.3125rem;
+  background-color: #fff;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.path-box:hover {
+  background-color: #e7e7e7;
+}
+
+.path-box.active {
+  background-color: #007bff;
+  color: #fff;
+}
+
+.logout-button {
+  background-color: #dc3545;
+  color: #fff;
+  width: 100%;
+  padding: 0.625rem;
+  border: none;
+  border-radius: 0.3125rem;
+  cursor: pointer;
+  margin-top: 0.9375rem;
+}
+
+.logout-button:hover {
+  background-color: #c82333;
+}
+
+/* Right Pane */
+#right-pane {
+  flex: 4;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+#right-pane h1 {
+  font-size: 2rem;
+  margin-bottom: 1.25rem;
+}
+
+#sandboxesContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9375rem;
+  height: calc(100% - 3.75rem);
+  overflow-y: auto;
+}
+
+.sandbox-card {
+  border: 1px solid #ddd;
+  border-radius: 0.3125rem;
+  padding: 0.9375rem;
+  background-color: #fff;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 0.9375rem;
+}
+
+.sandbox-card h4 {
+  margin: 0 0 0.625rem;
+}
+
+.sandbox-card p {
+  margin: 0.3125rem 0;
+}
+
+/* Popup Styles */
+.settings-button {
+  background-color: #d9534f;
+  color: #fff;
+  width: 100%;
+  padding: 0.625rem;
+  border: none;
+  border-radius: 0.3125rem;
+  cursor: pointer;
+}
+
+.settings-button:hover {
+  background-color: #c9302c;
+}
+
+.popup {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.popup.hidden {
+  display: none;
+}
+
+.popup-content {
+  background: #fff;
+  padding: 1.25rem;
+  border-radius: 0.3125rem;
+  width: 25rem;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.popup-content h2 {
+  margin-top: 0;
+}
+
+.popup-content form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.popup-buttons {
+  display: flex;
+  justify-content: space-between;
+}
+
+.save-button {
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  padding: 0.625rem;
+  border-radius: 0.3125rem;
+  cursor: pointer;
+}
+
+.close-button {
+  background-color: #d9534f;
+  color: #fff;
+  border: none;
+  padding: 0.625rem;
+  border-radius: 0.3125rem;
+  cursor: pointer;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  #container {
+    flex-direction: column;
+  }
+
+  #left-pane {
+    max-width: 100%;
+    flex: none;
+    height: auto;
+  }
+
+  #right-pane {
+    padding: 0.625rem;
+  }
+
+  .sandbox-card {
+    font-size: 0.875rem;
+    padding: 0.625rem;
+  }
+
+  #showAllBtn, .logout-button, .settings-button {
+    font-size: 0.875rem;
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  #popup-content {
+    width: 90%; /* Fit smaller screens */
+  }
+
+  .sandbox-card {
+    padding: 0.5rem;
+    font-size: 0.8125rem;
+  }
+}
+
+.edit-popup {
+  position: fixed;
+  top: 10%;
+  left: 50%;
+  transform: translate(-50%, -10%);
+  width: 80%;
+  height: 70%;
+  background: white;
+  border: 1px solid #ccc;
+  z-index: 1000;
+  box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+  padding: 20px;
+}
+
+.edit-popup .popup-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.edit-popup textarea {
+  flex: 1;
+  margin-bottom: 10px;
+  resize: none;
+}
+
+.edit-popup button {
+  margin: 5px 0;
+  padding: 10px;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.edit-popup button:hover {
+  background-color: #0056b3;
+}
+
