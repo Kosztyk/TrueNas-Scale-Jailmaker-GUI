@@ -1,21 +1,19 @@
 /****************************************************
  * server.js
  *
- * Node/Express + PostgreSQL + ssh2 + WebSocket (ws)
- *
+ * Node/Express + PostgreSQL + ssh2
+ * 
  * - Register/Login
  * - Store user/server details in DB
- * - Start/Stop/Restart/Remove sandbox
- * - Ephemeral route => /api/runSSHCommand
- * - NEW: /ws/permanentSsh => permanent shell session
+ * - Start/Stop/Restart sandbox
+ * - Remove sandbox by piping lines
+ * - NEW: /api/runSSHCommand => ephemeral command runner
  ****************************************************/
 
 const express = require('express');
-const http = require('http');       // For creating an HTTP server
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const { Client } = require('ssh2');
-const WebSocket = require('ws');    // For permanent SSH
 
 const app = express();
 app.use(express.json());
@@ -30,7 +28,7 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'jailmakerdb',
 });
 
-// Initialize database
+// Initialize database tables if needed
 (async function initDB() {
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
@@ -63,15 +61,13 @@ const pool = new Pool({
 // Serve static files
 app.use(express.static('public'));
 
-//---------------------------------------------------
 // Redirect to landing page
-//---------------------------------------------------
 app.get('/', (req, res) => {
   res.redirect('/index.html');
 });
 
 //---------------------------------------------------
-// Register
+// Register user
 //---------------------------------------------------
 app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
@@ -84,7 +80,7 @@ app.post('/api/register', async (req, res) => {
     const userQuery = `INSERT INTO users (username, passwordhash) VALUES ($1, $2) RETURNING id`;
     const userResult = await pool.query(userQuery, [username, hashedPassword]);
 
-    // Create an empty details row
+    // Create an empty details row for that user
     const detailsQuery = `INSERT INTO details (user_id) VALUES ($1)`;
     await pool.query(detailsQuery, [userResult.rows[0].id]);
 
@@ -295,7 +291,7 @@ app.get('/api/getUserDetails', async (req, res) => {
       return res.json({ success: false, message: 'User not found.' });
     }
 
-    // parse paths
+    // parse paths from JSON string if it exists
     const paths = userDetails.paths ? JSON.parse(userDetails.paths) : [];
 
     res.json({
@@ -316,7 +312,8 @@ app.get('/api/getUserDetails', async (req, res) => {
 });
 
 //---------------------------------------------------
-// controlSandbox
+// controlSandbox: start/stop/restart => ephemeral
+// remove => pipe everything so we don't get EOFError
 //---------------------------------------------------
 app.post('/api/controlSandbox', async (req, res) => {
   const { action, name, path, username } = req.body;
@@ -342,20 +339,24 @@ app.post('/api/controlSandbox', async (req, res) => {
 
     const { serverip, serverport, serveruser, serverpass } = userDetails;
 
+    // handle non-remove actions
     if (action !== 'remove') {
-      // Start/Stop/Restart
       const sshClient = new Client();
       sshClient
         .on('ready', () => {
           console.log(`SSH established for "${action}" on sandbox "${name}".`);
+
           const command = `echo ${serverpass} | sudo -S -p '' sh -c "cd ${path} && ./jlmkr.py ${action} '${name}'"`;
+
           sshClient.exec(command, (err, stream) => {
             if (err) {
               sshClient.end();
               return res.json({ success: false, message: `Error executing command: ${err.message}` });
             }
+
             let output = '';
             let errorOutput = '';
+
             stream
               .on('data', (data) => {
                 output += data.toString();
@@ -365,10 +366,12 @@ app.post('/api/controlSandbox', async (req, res) => {
               })
               .on('close', () => {
                 sshClient.end();
+
                 if (errorOutput && !errorOutput.includes('Running as unit:')) {
                   console.error(`Error: ${errorOutput}`);
                   return res.json({ success: false, message: errorOutput.trim() });
                 }
+
                 if (output.includes('Running as unit:') || errorOutput.includes('Running as unit:')) {
                   console.log(`Action "${action}" executed successfully: ${output || errorOutput}`);
                   return res.json({
@@ -377,6 +380,7 @@ app.post('/api/controlSandbox', async (req, res) => {
                     output: (output + errorOutput).trim(),
                   });
                 }
+
                 console.log(`Command output: ${output}`);
                 return res.json({ success: true, output: output.trim() });
               });
@@ -395,29 +399,43 @@ app.post('/api/controlSandbox', async (req, res) => {
       return;
     }
 
-    // remove => pipe lines
+    // Action = 'remove' => pipe all lines in one ephemeral command
     console.log(`[REMOVE pipe] for sandbox "${name}"...`);
+
     const sshClient = new Client();
     sshClient
       .on('ready', () => {
         console.log(`[REMOVE pipe] SSH ready for sandbox "${name}".`);
+
         const pipeline = `(echo "${serverpass}"; echo "${name}"; echo "")`;
+
         const removeCmd = `
 ${pipeline} | sudo -S -p '' sh -c "cd ${path} && ./jlmkr.py remove '${name}'"
 `;
+
         console.log(`[REMOVE pipe] Command:\n${removeCmd}`);
+
         sshClient.exec(removeCmd, { pty: true }, (err, stream) => {
           if (err) {
             sshClient.end();
             return res.json({ success: false, message: `Error executing remove command: ${err.message}` });
           }
+
           let output = '';
           let errorOutput = '';
-          stream.on('data', (data) => { output += data.toString(); })
-            .stderr.on('data', (data) => { errorOutput += data.toString(); })
+
+          stream
+            .on('data', (data) => {
+              output += data.toString();
+            })
+            .stderr.on('data', (data) => {
+              errorOutput += data.toString();
+            })
             .on('close', () => {
               sshClient.end();
               console.log(`[REMOVE pipe] Output for sandbox "${name}":\n${output}`);
+
+              // We won't parse for success or fail, just show final output
               return res.json({
                 success: true,
                 message: `Sandbox "${name}" remove command executed with piped lines.`,
@@ -469,6 +487,7 @@ app.post('/api/updateUserDetails', async (req, res) => {
     }
 
     const userId = userResult.rows[0].id;
+
     const updateUserQuery = `UPDATE users SET username = $1 WHERE id = $2`;
     await pool.query(updateUserQuery, [newUsername, userId]);
 
@@ -498,6 +517,7 @@ app.post('/api/updateUserDetails', async (req, res) => {
 //---------------------------------------------------
 app.post('/api/saveUserDetails', async (req, res) => {
   const { username, serverIp, serverPort, serverUser, serverPassword, paths } = req.body;
+
   if (!username || !serverIp || !serverPort || !serverUser || !serverPassword || !paths) {
     return res.status(400).json({ success: false, message: 'All fields are required.' });
   }
@@ -505,10 +525,13 @@ app.post('/api/saveUserDetails', async (req, res) => {
   try {
     const userQuery = 'SELECT id FROM users WHERE username = $1';
     const userResult = await pool.query(userQuery, [username]);
+
     if (userResult.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
+
     const userId = userResult.rows[0].id;
+
     const updateQuery = `
       UPDATE details
       SET serverip = $1, serverport = $2, serveruser = $3, serverpass = $4, paths = $5
@@ -522,6 +545,7 @@ app.post('/api/saveUserDetails', async (req, res) => {
       JSON.stringify(paths),
       userId,
     ]);
+
     res.json({ success: true, message: 'Details saved successfully.' });
   } catch (err) {
     console.error('Error saving user details:', err);
@@ -539,13 +563,16 @@ app.post('/api/disconnectSSH', async (req, res) => {
   if (!username) {
     return res.status(400).json({ success: false, message: 'Username is required.' });
   }
+
   try {
     const sshClient = activeSSHConnections.get(username);
+
     if (sshClient) {
       sshClient.end();
       activeSSHConnections.delete(username);
       console.log(`SSH connection closed for user: ${username}`);
     }
+
     res.json({ success: true, message: 'Logout successful. SSH connection closed.' });
   } catch (err) {
     console.error('Error during SSH disconnect:', err.message);
@@ -554,17 +581,21 @@ app.post('/api/disconnectSSH', async (req, res) => {
 });
 
 //---------------------------------------------------
-// HTTP server + WebSocket server
+// Start the server
 //---------------------------------------------------
-const server = http.createServer(app);
 const PORT = 8080;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
 
-//---------------------------------------------------
-// Ephemeral route => /api/runSSHCommand (unchanged)
-//---------------------------------------------------
+/** 
+ * 
+ * 
+ * NEW ROUTE: ephemeral SSH console (no wetty)
+ * runSSHCommand => ephemeral connect => run command => return output 
+ */
+
+// Add route for ephemeral commands
 app.post('/api/runSSHCommand', async (req, res) => {
   const { username, command } = req.body;
   if (!username || !command) {
@@ -572,6 +603,7 @@ app.post('/api/runSSHCommand', async (req, res) => {
   }
 
   try {
+    // find user details
     const userQuery = `
       SELECT d.serverip, d.serverport, d.serveruser, d.serverpass
       FROM details d
@@ -580,18 +612,19 @@ app.post('/api/runSSHCommand', async (req, res) => {
     `;
     const userResult = await pool.query(userQuery, [username]);
     const userDetails = userResult.rows[0];
+
     if (!userDetails) {
       return res.json({ success: false, message: 'User details not found for SSH.' });
     }
+
     const { serverip, serverport, serveruser, serverpass } = userDetails;
+
     const sshClient = new Client();
 
     sshClient
       .on('ready', () => {
-        console.log(`SSH ephemeral ready. Will run command as root: ${command}`);
-        const suCommand = `echo ${serverpass} | sudo -S -p '' /usr/bin/bash -c "${command}"`;
-
-        sshClient.exec(suCommand, (err, stream) => {
+        console.log(`SSH ephemeral ready to run: ${command}`);
+        sshClient.exec(command, (err, stream) => {
           if (err) {
             sshClient.end();
             return res.json({ success: false, message: err.message });
@@ -607,8 +640,10 @@ app.post('/api/runSSHCommand', async (req, res) => {
             })
             .on('close', () => {
               sshClient.end();
+
+              // Return combined output
               const combined = output + (errorOutput ? '\n' + errorOutput : '');
-              return res.json({ success: true, output: combined.trim() });
+              res.json({ success: true, output: combined.trim() });
             });
         });
       })
@@ -627,87 +662,3 @@ app.post('/api/runSSHCommand', async (req, res) => {
     return res.json({ success: false, message: err.message });
   }
 });
-
-//---------------------------------------------------
-// NEW: WebSocket-based permanent SSH => /ws/permanentSsh
-//---------------------------------------------------
-const wss = new WebSocket.Server({ server });
-
-wss.on('connection', async (ws, req) => {
-  // Expect ws://host:8080/ws/permanentSsh?username=someUser
-  const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
-  const username = urlParams.get('username');
-  if (!username) {
-    ws.send('No username specified in URL');
-    ws.close();
-    return;
-  }
-  let userDetails;
-  try {
-    const userQuery = `
-      SELECT d.serverip, d.serverport, d.serveruser, d.serverpass
-      FROM details d
-      INNER JOIN users u ON d.user_id = u.id
-      WHERE u.username = $1
-    `;
-    const userResult = await pool.query(userQuery, [username]);
-    userDetails = userResult.rows[0];
-    if (!userDetails) {
-      ws.send('User details not found for SSH');
-      ws.close();
-      return;
-    }
-  } catch (err) {
-    ws.send(`Error fetching user details: ${err}`);
-    ws.close();
-    return;
-  }
-  const { serverip, serverport, serveruser, serverpass } = userDetails;
-  const sshClient = new Client();
-  sshClient
-    .on('ready', () => {
-      // Request an interactive shell with a defined terminal type and dimensions.
-      sshClient.shell({ term: 'xterm-256color', cols: 120, rows: 40 }, (err, stream) => {
-        if (err) {
-          ws.send(`Error starting shell: ${err.message}`);
-          ws.close();
-          sshClient.end();
-          return;
-        }
-        // Immediately configure the remote shell to use the correct erase character.
-        stream.write("stty erase '^?'\n");
-
-        // Optionally, if you want to switch to root immediately, uncomment the next line:
-        // stream.write(`echo ${serverpass} | sudo -S -p '' su - root\n`);
-
-        stream.on('data', (data) => {
-          ws.send(data.toString(), { binary: false });
-        });
-        stream.stderr.on('data', (data) => {
-          ws.send(data.toString(), { binary: false });
-        });
-        stream.on('close', () => {
-          ws.close();
-          sshClient.end();
-        });
-        ws.on('message', (msg) => {
-          stream.write(msg);
-        });
-        ws.on('close', () => {
-          sshClient.end();
-        });
-      });
-    })
-    .on('error', (err) => {
-      ws.send(`SSH error: ${err.message}`);
-      ws.close();
-    })
-    .connect({
-      host: serverip,
-      port: serverport,
-      username: serveruser,
-      password: serverpass,
-    });
-
-});
-

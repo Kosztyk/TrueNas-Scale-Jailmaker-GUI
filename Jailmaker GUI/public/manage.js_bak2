@@ -120,30 +120,14 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
 
   function displaySandboxes(sandboxes) {
     sandboxesContainer.innerHTML = '';
-  
+
     sandboxes.forEach((sandbox) => {
       const outputLines = sandbox.output.split('\n').map(cleanOutputLine).filter(Boolean);
-  
+
       outputLines.forEach((line) => {
-        // Split the line into tokens; if not as expected, skip it.
-        const parts = line.split(/\s+/);
-        if (parts.length < 7) return;
-        
-        const [name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses] = parts;
-        
-        // Build the icon path. If "os" is defined, use images/<os>.png (all lower-case);
-        // otherwise, default to images/linux.png.
-        const iconPath = os ? "images/" + os.toLowerCase() + ".png" : "images/linux.png";
-  
-        // Create a sandbox card.
         const sandboxCard = document.createElement('div');
         sandboxCard.classList.add('sandbox-card');
-  
-        // IMPORTANT: Force the sandbox card to be the positioning context.
-        // (If your CSS doesn't already do this, you can set it inline as shown.)
-        sandboxCard.style.position = 'relative';
-        sandboxCard.style.paddingRight = '60px'; // Adjust as needed for the icon
-  
+        const [name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses] = line.split(/\s+/);
         sandboxCard.innerHTML = `
           <h4>${name} (${os} ${version})</h4>
           <p><strong>IP:</strong> ${addresses.join(' ') || 'N/A'}</p>
@@ -159,13 +143,11 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
             <button class="control-btn" data-action="restart" data-name="${name}" data-path="${sandbox.path}">Restart</button>
             <button class="control-btn" data-action="remove" data-name="${name}" data-path="${sandbox.path}">Remove</button>
           </div>
-          <!-- OS Icon: if the specific icon is not found, fallback to images/linux.png -->
-          <img src="${iconPath}" onerror="this.onerror=null; this.src='images/linux.png'" class="os-icon" alt="${os ? os : 'Linux'} Icon" />
         `;
         sandboxesContainer.appendChild(sandboxCard);
       });
     });
-  
+
     const controlButtons = document.querySelectorAll('.control-btn');
     controlButtons.forEach((button) => {
       button.addEventListener('click', async () => {
@@ -218,7 +200,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         }
       });
     });
-  }  
+  }
 
   function filterSandboxes(path, activeElement) {
     Array.from(pathsList.children).forEach((item) => item.classList.remove('active'));
@@ -425,7 +407,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     const wsUrl = `ws://${location.hostname}:${location.port}/ws/permanentSsh?username=${encodeURIComponent(username)}`;
     const ws = new WebSocket(wsUrl);
   
-    // ===== Begin xterm.js integration with xterm-fit addon =====
+    // ===== Begin xterm.js integration =====
   
     // Initialize the xterm.js terminal
     const term = new Terminal({
@@ -438,7 +420,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     term.loadAddon(fitAddon);
     fitAddon.fit();
   
-    // Listen to window resize events and adjust terminal size
+    // Listen to window resize events and adjust the terminal size
     window.addEventListener('resize', () => {
       fitAddon.fit();
     });
@@ -453,26 +435,32 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       return str.replace(/\s*#\s*$/gm, '');
     }
   
-    // Let xterm.js handle keys naturally (via onData)
+    // Use xterm.js onKey event to intercept Backspace and send BS (\x08)
+    term.onKey(e => {
+      if (e.domEvent.key === 'Backspace') {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(127);
+        }
+        e.domEvent.preventDefault();
+        return false;
+      }
+      return true;
+    });
+  
+    // Use xterm.js onData event to capture keystrokes (for all keys except Backspace, which is handled above)
     term.onData(data => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(data);
       }
     });
   
-    // Setup WebSocket message handler to write data to the terminal (without stripping ANSI for interactive apps)
+    // Setup WebSocket message handler to write data to the terminal using stripAnsi
     ws.onopen = () => {
       term.write('\r\n[Connected to permanent SSH session]\r\n');
-      // Immediately send command to set the remote shell's erase character to '^?'
-      ws.send("stty erase '^?'\n");
     };
     ws.onmessage = (evt) => {
-      // For interactive editors like nano, do not strip ANSI sequences.
-      // Uncomment the line below if you want raw output:
-      term.write(evt.data);
-      // If you want to try stripping, use:
-      // const text = stripAnsi(evt.data);
-      // term.write(text);
+      const text = stripAnsi(evt.data);
+      term.write(text);
     };
     ws.onclose = () => {
       term.write('\r\n[SSH session closed]\r\n');
@@ -498,11 +486,11 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         term.write('\r\n[Error: WebSocket not open]\r\n');
       }
     }
-    // ===== End xterm.js integration with xterm-fit addon =====
-  }   
+    // ===== End xterm.js integration =====
+    
+    // End of createSSHConsolePopup() function
+  }
 
   // fetch sandboxes on load
   fetchSandboxes();
 }
-
-

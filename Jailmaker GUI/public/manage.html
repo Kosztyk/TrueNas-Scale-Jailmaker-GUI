@@ -4,12 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="styles.css">
-  <title>Manage Sandboxes</title>
+  <link rel="icon" href="./favicon.ico" />
+  <!-- xterm.js CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+  <!-- xterm.js Library -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+  <!-- (Optional) xterm-fit addon -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+  <title>Jailmaker Manager</title>
 </head>
 <body>
   <div id="container">
     <!-- Left Pane -->
     <div id="left-pane">
+      <div class="left-header">
+        <img src="truenas.png" alt="App Icon" class="app-icon-left">
+      </div>
       <h2>Environments</h2>
       <button id="showAllBtn">Show All</button>
       <div id="paths-list">
@@ -21,7 +31,7 @@
   
     <!-- Right Pane -->
     <div id="right-pane">
-      <h1>Manage Sandboxes</h1>
+      <h1>Jailmaker Manager</h1>
       <div id="sandboxesContainer">
         <!-- Sandbox details will be displayed here -->
       </div>
