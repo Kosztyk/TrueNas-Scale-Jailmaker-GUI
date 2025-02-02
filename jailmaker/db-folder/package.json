@@ -1,0 +1,16 @@
+{
+  "name": "db-container",
+  "version": "1.0.0",
+  "description": "Postgres + NodeJS environment for migrations or seed scripts",
+  "main": "index.js",
+  "scripts": {
+    "migrate": "node migrations.js",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "pg": "^8.10.0",
+    "pg-format": "^1.0.4",
+    "bcrypt": "^5.1.0"
+  }
+}
+
