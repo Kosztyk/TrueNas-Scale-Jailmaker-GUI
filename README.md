@@ -1,3 +1,4 @@
+# Home-Assistant Custom Components
 Jailmaker GUI - a web grafical interface for Truenas Scale management
 
 This app is docker based, needs to be installed on a diffrent host than Truenas itself because needs to ssh connect to server
