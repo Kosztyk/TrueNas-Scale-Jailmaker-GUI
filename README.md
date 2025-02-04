@@ -31,7 +31,7 @@ Second Page - server credentials
     
   - Modify Truenas details saved on Page 2 and Page 3
     
-<img width="1703" alt="Screenshot 2025-02-04 at 20 38 12" src="https://github.com/user-attachments/assets/7c6f7cb6-28ee-49d0-9abf-becf73dd99ee" />
+<img width="1703" alt="Screenshot 2025-02-04 at 20 38 12" src="https://github.com/user-attachments/assets/a60f157d-d25c-4420-8924-d408756f7fed" />
 
    - Create New Jail
      Here you can choose from diffrent options:
