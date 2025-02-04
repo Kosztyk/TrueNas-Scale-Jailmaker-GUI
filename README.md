@@ -38,7 +38,7 @@ Second Page - server credentials
 
    - Create New Jail
      Here you can choose from diffrent options:
-         -  with Docker already installed (done) or without Docker (in developement)
+         -  with Docker already installed or without Docker
          - host paths binded to the jails or not;
          - choose wahat failvor you want to install
      
