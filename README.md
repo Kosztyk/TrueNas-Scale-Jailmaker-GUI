@@ -28,7 +28,8 @@ Second Page - server credentials
 
   - Connect SSH to Truenas
     
-    <img width="1703" alt="Screenshot 2025-02-04 at 20 37 56" src="https://github.com/user-attachments/assets/f578e13a-a52c-4bb6-b693-b083b5dd51dc" />
+    <img width="1360" alt="Screenshot 2025-02-04 at 20 37 56" src="https://github.com/user-attachments/assets/fb0a692d-f2e1-43ae-9c76-2a168226afc3" />
+
     
   - Modify Truenas details saved on Page 2 and Page 3
     
