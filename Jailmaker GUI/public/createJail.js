@@ -5,7 +5,7 @@ function openCreateJailPopup() {
     const existingPopup = document.getElementById("createJailPopup");
     if (existingPopup) existingPopup.remove();
 
-    // Create the overlay background
+    // Create the overlay
     const overlay = document.createElement("div");
     overlay.id = "createJailOverlay";
     overlay.style.position = "fixed";
@@ -33,7 +33,7 @@ function openCreateJailPopup() {
     popup.style.resize = "both";
     popup.style.overflow = "auto";
 
-    // Add title to the popup
+    // Title
     const title = document.createElement("h3");
     title.textContent = "Create Jail";
     title.style.margin = "0 0 20px 0";
@@ -45,7 +45,7 @@ function openCreateJailPopup() {
     title.style.borderBottom = "1px solid #ccc";
     popup.appendChild(title);
 
-    // Insert the form HTML, including "Jail Installation Path" dropdown and spinner
+    // Insert the form HTML (including "Jail Installation Path" and a spinner)
     const formHTML = `
       <form id="createJailForm">
           <!-- Docker selection -->
@@ -61,12 +61,10 @@ function openCreateJailPopup() {
               <label for="jailName" style="min-width: 180px;">Jail Name:</label>
               <input type="text" id="jailName" placeholder="Enter Jail Name" required style="flex: 1;">
           </div>
-          <!-- NEW Field: Jail Installation Path (dropdown, required) -->
+          <!-- Jail Installation Path -->
           <div style="display: flex; align-items: center; margin-bottom: 10px;">
               <label for="jailInstallPath" style="min-width: 180px;">Jail Installation Path:</label>
-              <select id="jailInstallPath" style="flex: 1; min-width:200px;" required>
-                <!-- We'll populate this after the DOM loads, directly from DB -->
-              </select>
+              <select id="jailInstallPath" style="flex: 1; min-width:200px;" required></select>
           </div>
           <!-- Distro -->
           <div style="display: flex; align-items: center; margin-bottom: 10px;">
@@ -105,7 +103,7 @@ function openCreateJailPopup() {
               </div>
               <p class="note" style="margin: 5px 0 10px 200px;">To be used if a static IP is wanted.</p>
           </div>
-          <!-- Bind drives to your Jail -->
+          <!-- Bind drives -->
           <div style="display: flex; align-items: center; margin-bottom: 10px;">
               <label class="bold-label" style="min-width: 180px;">Bind drives to your Jail:</label>
               <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px; margin-left: 20px;">
@@ -123,7 +121,7 @@ function openCreateJailPopup() {
               <label for="jailPath" style="min-width: 180px;">Jail Path:</label>
               <input type="text" id="jailPath" placeholder="Enter Jail Path" style="flex: 1; min-width:400px;">
           </div>
-          
+
           <!-- Buttons -->
           <div class="popup-buttons" style="display: flex; justify-content: center; gap: 10px;">
               <button type="submit" id="createSubmitBtn">Create Jail</button>
@@ -141,17 +139,20 @@ function openCreateJailPopup() {
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
 
-    // Close button
+    // Close on "Cancel"
     document.getElementById("closePopupBtn").addEventListener("click", () => {
         overlay.remove();
     });
 
-    // 1. Load distros + releases
+    // 1. Load distros
     loadDistros();
-    // 2. Setup checkbox logic
+
+    // 2. Setup checkboxes
     setupCheckboxLogic();
+
     // 3. Additional logic
     setupAdditionalLogic();
+
     // 4. Reverse logic for "Jail with Docker"
     document.getElementById("jailWithDockerYes").addEventListener("change", () => toggleFields(true));
     document.getElementById("jailWithDockerNo").addEventListener("change", () => toggleFields(false));
@@ -159,12 +160,17 @@ function openCreateJailPopup() {
     // 5. Populate "Jail Installation Path" from DB
     populateJailInstallationPaths();
 
-    // 6. Form submission => ephemeral SSH
+    // 6. On form submit => ephemeral SSH
     const form = document.getElementById("createJailForm");
     form.addEventListener("submit", async function(e) {
         e.preventDefault();
 
-        // Validate checkboxes
+        // Basic validation
+        const dockerYes = document.getElementById("jailWithDockerYes").checked;
+        const dockerNo  = document.getElementById("jailWithDockerNo").checked;
+        const bindYes   = document.getElementById("bindDrivesYes").checked;
+        const bindNo    = document.getElementById("bindDrivesNo").checked;
+
         let errorMessages = [];
         function isOneChecked(idYes, idNo) {
             const a = document.getElementById(idYes).checked;
@@ -177,33 +183,75 @@ function openCreateJailPopup() {
         if (!isOneChecked("bindDrivesYes", "bindDrivesNo")) {
             errorMessages.push("Please select either Yes or No for 'Bind drives to your Jail'.");
         }
-        // (Add checks for GPU/macvlan if you want)
+        // (Optionally also check Intel/Nvidia/Macvlan)
         if (errorMessages.length > 0) {
             alert(errorMessages.join("\n"));
             return;
         }
 
         // Gather form data
-        const jailName = document.getElementById("jailName").value.trim();
-        const bindYes = document.getElementById("bindDrivesYes").checked;
-        const hostPathVal = document.getElementById("hostPath").value.trim();
-        const jailPathVal = document.getElementById("jailPath").value.trim();
-        const installPath = document.getElementById("jailInstallPath").value;
+        const jailName     = document.getElementById("jailName").value.trim();
+        const installPath  = document.getElementById("jailInstallPath").value.trim();
+        const distro       = document.getElementById("distro").value.trim();
+        const release      = document.getElementById("release").value.trim();
+        const hostPathVal  = document.getElementById("hostPath").value.trim();
+        const jailPathVal  = document.getElementById("jailPath").value.trim();
 
-        // Build ephemeral SSH command
-        let command = `cd ${installPath} && curl -L -O https://raw.githubusercontent.com/kosztyk/TrueNas-Scale-Jailmaker-GUI/main/config && ./jlmkr.py create --start --config ${installPath}config "${jailName}"`;
-        
-        if (bindYes && hostPathVal && jailPathVal) {
-            // Add your extra flags with single quotes
-            command += ` --network-macvlan=eno1 --bind='${hostPathVal}:${jailPathVal}' --resolv-conf=bind-host --system-call-filter='add_key keyctl bpf'`;
+        // Intel GPU => -gi=1 or 0
+        const intelGpuYes = document.getElementById("intelGpuYes").checked;
+        const giValue = intelGpuYes ? 1 : 0;
+
+        // Nvidia GPU => -gn=1 or 0
+        const nvidiaGpuYes = document.getElementById("nvidiaGpuYes").checked;
+        const gnValue = nvidiaGpuYes ? 1 : 0;
+
+        // Macvlan => yes => --network-macvlan=eno1; no => --network-bridge=br1
+        const macvlanYes = document.getElementById("macvlanYes").checked;
+        let networkArg = macvlanYes ? `--network-macvlan=eno1` : `--network-bridge=br1`;
+
+        // Build ephemeral command differently for Docker=Yes vs Docker=No
+        let command = "";
+
+        if (dockerYes) {
+            // SCENARIO 1: "Docker" = YES
+            // (Example: use the old logic of downloading config, etc.)
+            // Adjust as needed for your Docker scenario.
+            command = `cd ${installPath} && curl -L -O https://raw.githubusercontent.com/kosztyk/TrueNas-Scale-Jailmaker-GUI/main/config `
+                    + `&& ./jlmkr.py create --start --config ${installPath}config "${jailName}"`;
+            
+            // If bind = yes => add
+            if (bindYes && hostPathVal && jailPathVal) {
+                command += ` --network-macvlan=eno1 --bind='${hostPathVal}:${jailPathVal}' --resolv-conf=bind-host --system-call-filter='add_key keyctl bpf'`;
+            }
+
+        } else {
+            // SCENARIO 2: "Docker" = NO
+            //
+            // ./jlmkr.py create --start --distro=<distro> --release=<release> \
+            //     --startup=1 --seccomp=1 -gi=<giValue> -gn=<gnValue> "<jailName>" \
+            //     <networkArg> [--bind=...] --system-call-filter='add_key keyctl bpf' --resolv-conf=bind-host
+            //
+            command = `cd ${installPath} && ./jlmkr.py create --start `
+                    + `--distro=${distro} --release=${release} `
+                    + `--startup=1 --seccomp=1 -gi=${giValue} -gn=${gnValue} `
+                    + `"${jailName}" `
+                    + `${networkArg}`;
+
+            // 2) If Bind=Yes => insert --bind='hostPathVal:jailPathVal' right after networkArg
+            if (bindYes && hostPathVal && jailPathVal) {
+            command += ` --bind='${hostPathVal}:${jailPathVal}'`;
+            }
+
+            // 3) Finally add the system-call-filter and resolv-conf flags
+            command += ` --system-call-filter='add_key keyctl bpf' --resolv-conf=bind-host`;
         }
 
-        // Get references to create & cancel buttons and the spinner
+        // References to buttons & spinner
         const submitBtn = document.getElementById("createSubmitBtn");
         const cancelBtn = document.getElementById("closePopupBtn");
         const spinnerDiv = document.getElementById("creatingSpinner");
 
-        // Disable buttons, show spinner
+        // Disable them, show spinner
         submitBtn.disabled = true;
         cancelBtn.disabled = true;
         spinnerDiv.style.display = "block";
@@ -219,10 +267,10 @@ function openCreateJailPopup() {
             const data = await response.json();
             if (data.success) {
                 alert(`Jail creation successful!\n\nOutput:\n${data.output}`);
-                // Close popup => remove overlay
+                // Close popup
                 overlay.remove();
             } else {
-                // Error from ephemeral route => re-enable
+                // Error => re-enable
                 alert(`Error creating jail:\n${data.message}`);
                 submitBtn.disabled = false;
                 cancelBtn.disabled = false;
@@ -265,8 +313,7 @@ function openCreateJailPopup() {
 }
 
 /**
- * Fetch user details (including `paths`) from DB,
- * then populate the #jailInstallPath dropdown with them.
+ * Load user paths from DB => populate the #jailInstallPath dropdown
  */
 async function populateJailInstallationPaths() {
     const username = localStorage.getItem("username"); 
@@ -288,7 +335,6 @@ async function populateJailInstallationPaths() {
         jailInstallPathSelect.innerHTML = "";
 
         if (userPaths.length === 0) {
-            // Show a 'No paths found' option if empty
             const opt = document.createElement("option");
             opt.value = "";
             opt.textContent = "No paths found";
@@ -308,7 +354,7 @@ async function populateJailInstallationPaths() {
     }
 }
 
-// Setup checkbox mutual exclusions
+// Setup mutual exclusions for each pair of checkboxes
 function setupCheckboxLogic() {
     function toggleCheckbox(group) {
         group.forEach((checkbox) => {
@@ -328,10 +374,10 @@ function setupCheckboxLogic() {
     toggleCheckbox([document.getElementById("bindDrivesYes"), document.getElementById("bindDrivesNo")]);
 }
 
-// Additional logic for enabling/disabling host/jail path fields
+// Logic for enabling/disabling host/jail path fields if "Bind drives" = yes/no
 function setupAdditionalLogic() {
     const bindYes = document.getElementById("bindDrivesYes");
-    const bindNo = document.getElementById("bindDrivesNo");
+    const bindNo  = document.getElementById("bindDrivesNo");
     const hostPath = document.getElementById("hostPath");
     const jailPath = document.getElementById("jailPath");
 
@@ -352,8 +398,9 @@ function setupAdditionalLogic() {
     });
 }
 
-// Disables fields if "Docker" = yes, per your existing logic
+// If "Docker"=Yes => disable some fields, else enable
 function toggleFields(disable) {
+    // Which fields do we disable if Docker=Yes?
     const fields = [
       "distro", "release", 
       "intelGpuYes", "intelGpuNo", 
@@ -366,5 +413,6 @@ function toggleFields(disable) {
     });
 }
 
-// Make openCreateJailPopup globally accessible
+// Expose the function globally
 window.openCreateJailPopup = openCreateJailPopup;
+
