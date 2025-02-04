@@ -16,14 +16,15 @@ Second Page - server credentials
 
 4th page - Jails management page 
 
-<img width="1703" alt="Screenshot 2025-02-04 at 20 37 31" src="https://github.com/user-attachments/assets/bfa3983f-3977-40a6-8b84-df45fae00c2f" />
+<img width="1564" alt="Screenshot 2025-02-04 at 20 37 31" src="https://github.com/user-attachments/assets/d6bf730e-3d42-4e63-af33-8345ecfe1da4" />
+
 
  ** Functions **
  
 
-   - List all Jails or sort them by path
-     
-<img width="1703" alt="Screenshot 2025-02-04 at 20 37 31" src="https://github.com/user-attachments/assets/2d743654-56b6-413d-8b7b-b24645ad78f8" />
+   - List all Jails or sort them by paths
+
+     <img width="1564" alt="Screenshot 2025-02-04 at 20 37 31" src="https://github.com/user-attachments/assets/c4de5995-6dea-4fcf-aecf-8eda94015cf5" />
 
   - Connect SSH to Truenas
     
@@ -42,8 +43,9 @@ Second Page - server credentials
 <img width="1703" alt="Screenshot 2025-02-04 at 20 38 34" src="https://github.com/user-attachments/assets/a7cfae1b-1876-4930-8e8e-81634ed18da9" />
 
    - Jails management like stop, restart, start, delete, edit (planned), connect (ssh, planned), update jail (planned)
-     
-     <img width="1341" alt="Screenshot 2025-02-04 at 21 00 12" src="https://github.com/user-attachments/assets/3cd431fa-3ecf-484a-81a1-331f80ef7d4f" />
+
+     <img width="1341" alt="Screenshot 2025-02-04 at 21 00 12" src="https://github.com/user-attachments/assets/16dcbf3f-539d-4deb-b076-e257eea6d78b" />
+
 
      Installation:
        download the files on the host where docker compose is installed, execute - docker compose build then docker compose up -d
