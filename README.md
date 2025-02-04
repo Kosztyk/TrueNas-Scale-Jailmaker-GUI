@@ -20,7 +20,7 @@ Second Page - server credentials
 <img width="1564" alt="Screenshot 2025-02-04 at 20 37 31" src="https://github.com/user-attachments/assets/d6bf730e-3d42-4e63-af33-8345ecfe1da4" />
 
 
- ** Functions **
+# ** Functions **
  
 
    - List all Jails or sort them by paths
@@ -49,7 +49,7 @@ Second Page - server credentials
      <img width="1341" alt="Screenshot 2025-02-04 at 21 00 12" src="https://github.com/user-attachments/assets/16dcbf3f-539d-4deb-b076-e257eea6d78b" />
 
 
-     Installation:
+   #  Installation:
        download the files on the host where docker compose is installed, execute - docker compose build then docker compose up -d
 
-     Access it from http://host IP:8080
+  #   Access it from http://host IP:8080
