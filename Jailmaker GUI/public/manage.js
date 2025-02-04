@@ -50,6 +50,19 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
           pathsList.appendChild(pathBox);
         });
 
+        // ADD "CREATE JAIL" BUTTON HERE
+        const createJailBtn = document.createElement("div");
+        createJailBtn.classList.add("path-box");
+        createJailBtn.textContent = "Create Jail";
+        createJailBtn.style.backgroundColor = "#007bff";
+        createJailBtn.style.color = "white";
+        createJailBtn.style.fontWeight = "bold";
+        createJailBtn.style.marginTop = "10px";
+        createJailBtn.style.cursor = "pointer";
+        createJailBtn.addEventListener("click", openCreateJailPopup);
+
+        pathsList.appendChild(createJailBtn);
+
         // connect SSH button
         const sshConnectBtn = document.createElement('div');
         sshConnectBtn.classList.add('path-box');
@@ -375,17 +388,50 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     popup.style.left = '30%';
     popup.style.width = '60%';
     popup.style.height = '80%';
-    popup.style.backgroundColor = 'rgba(255,255,255,0.8)'; // 20% transparent
+    popup.style.backgroundColor = 'rgba(255, 255, 255, 0.8)'; // 20% transparent
     popup.style.borderRadius = '8px';
     popup.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
     popup.style.display = 'flex';
     popup.style.flexDirection = 'column';
     popup.style.padding = '10px';
-  
+    popup.style.resize = "both";
+    popup.style.overflow = "auto";
+
     const title = document.createElement('h3');
     title.textContent = 'Permanent SSH Terminal';
     popup.appendChild(title);
-  
+    
+   // --- Make the popup draggable using the title as the handle ---
+  title.addEventListener('mousedown', dragMouseDown);
+  function dragMouseDown(e) {
+    e = e || window.event;
+    e.preventDefault();
+    // Get the initial mouse cursor position
+    let pos3 = e.clientX;
+    let pos4 = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+    
+    function elementDrag(e) {
+      e = e || window.event;
+      e.preventDefault();
+      // Calculate the new cursor position:
+      let pos1 = pos3 - e.clientX;
+      let pos2 = pos4 - e.clientY;
+      pos3 = e.clientX;
+      pos4 = e.clientY;
+      // Set the element's new position:
+      popup.style.top = (popup.offsetTop - pos2) + "px";
+      popup.style.left = (popup.offsetLeft - pos1) + "px";
+    }
+    
+    function closeDragElement() {
+      document.onmouseup = null;
+      document.onmousemove = null;
+    }
+  }
+  // --- End draggable code ---
+
     // Create container for the xterm.js terminal
     const terminalContainer = document.createElement('div');
     terminalContainer.style.flex = '1';
@@ -393,7 +439,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     terminalContainer.style.width = '100%';
     terminalContainer.style.height = '100%';
     popup.appendChild(terminalContainer);
-  
+
     // (Optional) Input field for sending commands via button
     const inputWrapper = document.createElement('div');
     inputWrapper.style.display = 'flex';
@@ -501,8 +547,92 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     // ===== End xterm.js integration with xterm-fit addon =====
   }   
 
+    // ====Create Jails script========
+    document.addEventListener("DOMContentLoaded", function () {
+      const pathsList = document.getElementById("paths-list");
+    
+      if (!pathsList) {
+        console.error("Error: pathsList element not found.");
+        return;
+      }
+    
+      // Dynamically load scripts
+      function loadScript(src, callback) {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = callback;
+        script.onerror = function () {
+          console.error(`Failed to load script: ${src}`);
+        };
+        document.body.appendChild(script);
+      }
+    
+      // Load jailData.js first, then createJail.js
+      loadScript("jailData.js", function () {
+        loadScript("createJail.js", function () {
+          if (typeof openCreateJailPopup !== "function") {
+            console.error("Error: openCreateJailPopup is not defined. Check createJail.js.");
+            return;
+          }
+    
+          // Create "Create Jail" button
+          const createJailBtn = document.createElement("button");
+          createJailBtn.id = "createJailBtn";
+          createJailBtn.textContent = "Create Jail";
+          createJailBtn.classList.add("create-jail-button");
+          createJailBtn.addEventListener("click", openCreateJailPopup);
+    
+          pathsList.appendChild(createJailBtn);
+        });
+      });
+    });
+    
+      // settings popup dragable
+      document.addEventListener("DOMContentLoaded", function() {
+  const settingsPopup = document.getElementById("settingsPopup");
+  if (!settingsPopup) return;
+
+  // Make sure the settings popup is resizable via CSS
+  settingsPopup.style.resize = "both";
+  settingsPopup.style.overflow = "auto";
+
+  // Use the <h2> element inside the settings popup as the draggable handle.
+  const settingsHeader = settingsPopup.querySelector("h2");
+  if (settingsHeader) {
+    settingsHeader.style.cursor = "move"; // indicate draggable
+    settingsHeader.addEventListener("mousedown", dragSettingsPopup);
+  }
+
+  function dragSettingsPopup(e) {
+    e = e || window.event;
+    e.preventDefault();
+    // Get the initial mouse cursor position
+    let pos3 = e.clientX;
+    let pos4 = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+
+    function elementDrag(e) {
+      e = e || window.event;
+      e.preventDefault();
+      // Calculate the new cursor position:
+      let pos1 = pos3 - e.clientX;
+      let pos2 = pos4 - e.clientY;
+      pos3 = e.clientX;
+      pos4 = e.clientY;
+      // Set the new position of the popup
+      settingsPopup.style.top = (settingsPopup.offsetTop - pos2) + "px";
+      settingsPopup.style.left = (settingsPopup.offsetLeft - pos1) + "px";
+    }
+
+    function closeDragElement() {
+      document.onmouseup = null;
+      document.onmousemove = null;
+    }
+  }
+});
+
+
   // fetch sandboxes on load
   fetchSandboxes();
 }
-
-

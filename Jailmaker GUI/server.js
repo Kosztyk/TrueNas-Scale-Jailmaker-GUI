@@ -16,6 +16,8 @@ const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const { Client } = require('ssh2');
 const WebSocket = require('ws');    // For permanent SSH
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -59,6 +61,32 @@ const pool = new Pool({
     process.exit(1);
   }
 })();
+
+// Custom routes first:
+app.get("/distros", (req, res) => {
+  const filePath = path.join(__dirname, "public", "distros", "distros"); // This points to the file named "distros"
+  fs.readFile(filePath, "utf8", (err, data) => {
+      if (err) {
+          console.error("Error reading distro file:", err);
+          return res.status(500).json({ error: "Failed to load distros" });
+      }
+      const distroArray = data.split("\n").map(d => d.trim()).filter(Boolean);
+      res.json(distroArray);
+  });
+});
+
+app.get("/releases/:distro", (req, res) => {
+  const distro = req.params.distro.toLowerCase();
+  const filePath = path.join(__dirname, "public", "distros", distro); // Assuming each distro folder has a text file with releases
+  fs.readFile(filePath, "utf8", (err, data) => {
+      if (err) {
+          console.error("Error reading releases file:", err);
+          return res.status(404).json({ error: `No releases found for ${distro}` });
+      }
+      const releases = data.split("\n").map(r => r.trim()).filter(Boolean);
+      res.json(releases);
+  });
+});
 
 // Serve static files
 app.use(express.static('public'));
@@ -710,4 +738,3 @@ wss.on('connection', async (ws, req) => {
     });
 
 });
-

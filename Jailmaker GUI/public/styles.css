@@ -186,14 +186,12 @@ body, html {
 }
 
 .sandbox-card {
-  position: relative; /* Ensures child absolutely positioned elements are relative to this container */
-  padding-right: 60px; /* Creates space on the right for the icon */
-  margin-bottom: 20px; /* Optional: spacing between sandbox cards */
   border: 1px solid #ddd;
   border-radius: 0.3125rem;
   padding: 0.9375rem;
   background-color: #fff;
   box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 0.9375rem;
 }
 
 .sandbox-card h4 {
@@ -238,10 +236,14 @@ body, html {
 
 .popup-content {
   background: #fff;
+  background: rgba(255, 255, 255, 0.8); 
   padding: 1.25rem;
   border-radius: 0.3125rem;
   width: 25rem;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  resize: both;
+  overflow: auto;
+  z-index: 9999;
 }
 
 .popup-content h2 {
@@ -383,3 +385,128 @@ body, html {
   height: auto;
 }
 
+/* Create Jail Popup Styles */
+#createJailOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.2); /* 20% transparency */
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#createJailPopup {
+  position: absolute;
+  top: 10%;
+  left: 30%;
+  width: 60%;
+  height: 80%;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  resize: both;
+  overflow: auto;
+}
+
+/* Title of the Popup */
+#createJailPopup h3 {
+  text-align: center;
+  font-weight: bold;
+  margin: 0;
+  padding: 10px 0;
+  cursor: move; /* Draggable handle */
+}
+
+/* General Form Styles */
+#createJailPopup form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+#createJailPopup label {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+#createJailPopup input,
+#createJailPopup select {
+  width: 70%; /* Default width */
+  padding: 10px;
+  margin: 5px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+#distro,
+#release {
+  width: 40%; /* Narrower dropdown width */
+}
+
+#hostPath,
+#jailPath {
+  width: 70%; /* Wider input fields */
+}
+
+/* Checkbox Groups */
+.checkbox-group {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 15px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  margin-right: 5px;
+}
+
+.bold-label {
+  font-weight: bold;
+}
+
+.note {
+  font-size: 12px;
+  color: gray;
+  text-align: center;
+}
+
+/* Popup Buttons */
+.popup-buttons {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.popup-buttons button {
+  padding: 10px 20px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.popup-buttons button[type="submit"] {
+  background-color: #007bff;
+}
+
+.popup-buttons button[type="submit"]:hover {
+  background-color: #0056b3;
+}
+
+.popup-buttons button#closePopupBtn {
+  background-color: #d9534f;
+}
+
+.popup-buttons button#closePopupBtn:hover {
+  background-color: #c82333;
+}
