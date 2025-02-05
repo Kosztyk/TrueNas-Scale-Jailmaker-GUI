@@ -56,6 +56,22 @@ function openCreateJailPopup() {
                   <label for="jailWithDockerNo">No</label><input type="checkbox" id="jailWithDockerNo">
               </div>
           </div>
+          <!-- Install Jail from custom config file -->
+          <div style="display: flex; align-items: center; margin-bottom: 10px;">
+               <label class="bold-label" style="min-width: 180px;">Install Jail from custom config file:</label>
+               <div style="display: flex; align-items: center; gap: 10px; margin-left: 20px;">
+                   <input type="checkbox" id="customConfigCheck" 
+                          style="transform: scale(1.1); transform-origin: left center; margin-left: 5px;">
+               </div>
+          </div>
+          <!-- Config file name + note -->
+          <div style="display: flex; align-items: center; margin-bottom: 5px;">
+              <label for="configFileName" style="min-width: 180px;">Config file name:</label>
+              <input type="text" id="configFileName" placeholder="Enter config file name" style="flex: 1;">
+          </div>
+          <p class="note" id="configFileNote" style="margin: 0 0 10px 200px; font-size: 12px; color: gray;">
+              Manually place the config file on same path where jail will be installed.
+          </p> 
           <!-- Jail Name -->
           <div style="display: flex; align-items: center; margin-bottom: 10px;">
               <label for="jailName" style="min-width: 180px;">Jail Name:</label>
@@ -144,6 +160,13 @@ function openCreateJailPopup() {
         overlay.remove();
     });
 
+    // Function: isOneChecked
+    function isOneChecked(idYes, idNo) {
+        const a = document.getElementById(idYes).checked;
+        const b = document.getElementById(idNo).checked;
+        return (a || b) && !(a && b);
+    }
+
     // 1. Load distros
     loadDistros();
 
@@ -153,37 +176,46 @@ function openCreateJailPopup() {
     // 3. Additional logic
     setupAdditionalLogic();
 
-    // 4. Reverse logic for "Jail with Docker"
+    // 4. Custom config logic
+    setupCustomConfigLogic();
+
+    // 5. Reverse logic for "Jail with Docker"
     document.getElementById("jailWithDockerYes").addEventListener("change", () => toggleFields(true));
     document.getElementById("jailWithDockerNo").addEventListener("change", () => toggleFields(false));
 
-    // 5. Populate "Jail Installation Path" from DB
+    // 6. Populate "Jail Installation Path" from DB
     populateJailInstallationPaths();
 
-    // 6. On form submit => ephemeral SSH
+    // 7. On form submit => ephemeral SSH
     const form = document.getElementById("createJailForm");
     form.addEventListener("submit", async function(e) {
         e.preventDefault();
 
         // Basic validation
-        const dockerYes = document.getElementById("jailWithDockerYes").checked;
-        const dockerNo  = document.getElementById("jailWithDockerNo").checked;
-        const bindYes   = document.getElementById("bindDrivesYes").checked;
-        const bindNo    = document.getElementById("bindDrivesNo").checked;
+        const dockerYes  = document.getElementById("jailWithDockerYes").checked;
+        const dockerNo   = document.getElementById("jailWithDockerNo").checked;
+        const bindYes    = document.getElementById("bindDrivesYes").checked;
+        const bindNo     = document.getElementById("bindDrivesNo").checked;
+        const customConfigChecked = document.getElementById("customConfigCheck").checked;
+        const configFileNameVal   = document.getElementById("configFileName").value.trim();
 
         let errorMessages = [];
-        function isOneChecked(idYes, idNo) {
-            const a = document.getElementById(idYes).checked;
-            const b = document.getElementById(idNo).checked;
-            return (a || b) && !(a && b);
+
+        // Only require Docker or Bind if NOT using custom config
+        if (!customConfigChecked) {
+            if (!isOneChecked("jailWithDockerYes", "jailWithDockerNo")) {
+                errorMessages.push("Please select either Yes or No for 'Jail with Docker'.");
+            }
+            if (!isOneChecked("bindDrivesYes", "bindDrivesNo")) {
+                errorMessages.push("Please select either Yes or No for 'Bind drives to your Jail'.");
+            }
         }
-        if (!isOneChecked("jailWithDockerYes", "jailWithDockerNo")) {
-            errorMessages.push("Please select either Yes or No for 'Jail with Docker'.");
+
+        // If custom config is checked => require configFileName
+        if (customConfigChecked && !configFileNameVal) {
+            errorMessages.push("Please provide a config file name if 'Install from custom config file' is selected.");
         }
-        if (!isOneChecked("bindDrivesYes", "bindDrivesNo")) {
-            errorMessages.push("Please select either Yes or No for 'Bind drives to your Jail'.");
-        }
-        // (Optionally also check Intel/Nvidia/Macvlan)
+
         if (errorMessages.length > 0) {
             alert(errorMessages.join("\n"));
             return;
@@ -207,51 +239,51 @@ function openCreateJailPopup() {
 
         // Macvlan => yes => --network-macvlan=eno1; no => --network-bridge=br1
         const macvlanYes = document.getElementById("macvlanYes").checked;
-        let networkArg = macvlanYes ? `--network-macvlan=eno1` : `--network-bridge=br1`;
+        const networkArg = macvlanYes ? `--network-macvlan=eno1` : ``;
 
-        // Build ephemeral command differently for Docker=Yes vs Docker=No
+        // Build ephemeral SSH command
         let command = "";
 
-        if (dockerYes) {
-            // SCENARIO 1: "Docker" = YES
-            // (Example: use the old logic of downloading config, etc.)
-            // Adjust as needed for your Docker scenario.
-            command = `cd ${installPath} && curl -L -O https://raw.githubusercontent.com/kosztyk/TrueNas-Scale-Jailmaker-GUI/main/config `
-                    + `&& ./jlmkr.py create --start --config ${installPath}config "${jailName}"`;
-            
-            // If bind = yes => add
-            if (bindYes && hostPathVal && jailPathVal) {
-                command += ` --network-macvlan=eno1 --bind='${hostPathVal}:${jailPathVal}' --resolv-conf=bind-host --system-call-filter='add_key keyctl bpf'`;
-            }
+        // CASE 1: If using custom config
+        if (customConfigChecked) {
+            // e.g. cd <installPath> && ./jlmkr.py create --start --config <installPath>/<configFileName> "jailName"
+            command = `cd ${installPath} && ./jlmkr.py create --start --config ${installPath}${configFileNameVal} "${jailName}"`;
 
         } else {
-            // SCENARIO 2: "Docker" = NO
-            //
-            // ./jlmkr.py create --start --distro=<distro> --release=<release> \
-            //     --startup=1 --seccomp=1 -gi=<giValue> -gn=<gnValue> "<jailName>" \
-            //     <networkArg> [--bind=...] --system-call-filter='add_key keyctl bpf' --resolv-conf=bind-host
-            //
-            command = `cd ${installPath} && ./jlmkr.py create --start `
-                    + `--distro=${distro} --release=${release} `
-                    + `--startup=1 --seccomp=1 -gi=${giValue} -gn=${gnValue} `
-                    + `"${jailName}" `
-                    + `${networkArg}`;
+            // Not using custom config => check if Docker=Yes or No
+            if (dockerYes) {
+                // Docker = YES => old logic with a downloaded config
+                command = `cd ${installPath} && curl -L -O https://raw.githubusercontent.com/kosztyk/TrueNas-Scale-Jailmaker-GUI/main/config `
+                        + `&& ./jlmkr.py create --start --config ${installPath}config "${jailName}"`;
 
-            // 2) If Bind=Yes => insert --bind='hostPathVal:jailPathVal' right after networkArg
-            if (bindYes && hostPathVal && jailPathVal) {
-            command += ` --bind='${hostPathVal}:${jailPathVal}'`;
+                if (bindYes && hostPathVal && jailPathVal) {
+                    command += ` --network-macvlan=eno1 --bind='${hostPathVal}:${jailPathVal}' --resolv-conf=bind-host --system-call-filter='add_key keyctl bpf'`;
+                }
+
+            } else {
+                // Docker = NO => standard create command with distro, release, etc.
+                // e.g.: cd <installPath> && ./jlmkr.py create --start --distro=<d> --release=<r> ...
+                command = `cd ${installPath} && ./jlmkr.py create --start `
+                        + `--distro=${distro} --release=${release} `
+                        + `--startup=1 --seccomp=1 -gi=${giValue} -gn=${gnValue} `
+                        + `"${jailName}" `
+                        + networkArg;  
+
+                // If Bind=Yes => add
+                if (bindYes && hostPathVal && jailPathVal) {
+                    command += ` --bind='${hostPathVal}:${jailPathVal}'`;
+                }
+
+                command += ` --system-call-filter='add_key keyctl bpf' --resolv-conf=bind-host`;
             }
-
-            // 3) Finally add the system-call-filter and resolv-conf flags
-            command += ` --system-call-filter='add_key keyctl bpf' --resolv-conf=bind-host`;
         }
 
-        // References to buttons & spinner
-        const submitBtn = document.getElementById("createSubmitBtn");
-        const cancelBtn = document.getElementById("closePopupBtn");
-        const spinnerDiv = document.getElementById("creatingSpinner");
+        // Now do ephemeral SSH
+        const submitBtn   = document.getElementById("createSubmitBtn");
+        const cancelBtn   = document.getElementById("closePopupBtn");
+        const spinnerDiv  = document.getElementById("creatingSpinner");
 
-        // Disable them, show spinner
+        // Disable buttons, show spinner
         submitBtn.disabled = true;
         cancelBtn.disabled = true;
         spinnerDiv.style.display = "block";
@@ -264,20 +296,18 @@ function openCreateJailPopup() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body)
             });
+
             const data = await response.json();
             if (data.success) {
                 alert(`Jail creation successful!\n\nOutput:\n${data.output}`);
-                // Close popup
-                overlay.remove();
+                overlay.remove(); // close popup
             } else {
-                // Error => re-enable
                 alert(`Error creating jail:\n${data.message}`);
                 submitBtn.disabled = false;
                 cancelBtn.disabled = false;
                 spinnerDiv.style.display = "none";
             }
         } catch (err) {
-            // Hard error => re-enable
             alert(`Error creating jail:\n${err}`);
             submitBtn.disabled = false;
             cancelBtn.disabled = false;
@@ -285,7 +315,7 @@ function openCreateJailPopup() {
         }
     });
 
-    // 7. Draggable logic
+    // Draggable logic
     title.addEventListener("mousedown", dragMouseDown);
     function dragMouseDown(e) {
         e = e || window.event;
@@ -302,8 +332,8 @@ function openCreateJailPopup() {
             const pos2 = pos4 - e.clientY;
             pos3 = e.clientX;
             pos4 = e.clientY;
-            popup.style.top = `${popup.offsetTop - pos2}px`;
-            popup.style.left = `${popup.offsetLeft - pos1}px`;
+            popup.style.top = (popup.offsetTop - pos2) + "px";
+            popup.style.left = (popup.offsetLeft - pos1) + "px";
         }
         function closeDragElement() {
             document.onmouseup = null;
@@ -312,13 +342,11 @@ function openCreateJailPopup() {
     }
 }
 
-/**
- * Load user paths from DB => populate the #jailInstallPath dropdown
- */
+// Load user paths => fill #jailInstallPath
 async function populateJailInstallationPaths() {
     const username = localStorage.getItem("username"); 
     if (!username) {
-      console.error("No username found in localStorage - cannot fetch user details.");
+      console.error("No username found in localStorage. Cannot fetch user details.");
       return;
     }
 
@@ -331,30 +359,29 @@ async function populateJailInstallationPaths() {
         }
 
         const userPaths = data.details.paths || [];
-        const jailInstallPathSelect = document.getElementById("jailInstallPath");
-        jailInstallPathSelect.innerHTML = "";
+        const selectEl  = document.getElementById("jailInstallPath");
+        selectEl.innerHTML = "";
 
         if (userPaths.length === 0) {
             const opt = document.createElement("option");
             opt.value = "";
             opt.textContent = "No paths found";
-            jailInstallPathSelect.appendChild(opt);
+            selectEl.appendChild(opt);
             return;
         }
 
-        // Populate
         userPaths.forEach((pathVal) => {
             const opt = document.createElement("option");
             opt.value = pathVal;
             opt.textContent = pathVal;
-            jailInstallPathSelect.appendChild(opt);
+            selectEl.appendChild(opt);
         });
     } catch (err) {
         console.error("Error fetching user details for jail paths:", err);
     }
 }
 
-// Setup mutual exclusions for each pair of checkboxes
+// Setup pairs of yes/no checkboxes to be mutually exclusive
 function setupCheckboxLogic() {
     function toggleCheckbox(group) {
         group.forEach((checkbox) => {
@@ -368,13 +395,13 @@ function setupCheckboxLogic() {
         });
     }
     toggleCheckbox([document.getElementById("jailWithDockerYes"), document.getElementById("jailWithDockerNo")]);
-    toggleCheckbox([document.getElementById("intelGpuYes"), document.getElementById("intelGpuNo")]);
-    toggleCheckbox([document.getElementById("nvidiaGpuYes"), document.getElementById("nvidiaGpuNo")]);
-    toggleCheckbox([document.getElementById("macvlanYes"), document.getElementById("macvlanNo")]);
-    toggleCheckbox([document.getElementById("bindDrivesYes"), document.getElementById("bindDrivesNo")]);
+    toggleCheckbox([document.getElementById("intelGpuYes"),      document.getElementById("intelGpuNo")]);
+    toggleCheckbox([document.getElementById("nvidiaGpuYes"),     document.getElementById("nvidiaGpuNo")]);
+    toggleCheckbox([document.getElementById("macvlanYes"),       document.getElementById("macvlanNo")]);
+    toggleCheckbox([document.getElementById("bindDrivesYes"),    document.getElementById("bindDrivesNo")]);
 }
 
-// Logic for enabling/disabling host/jail path fields if "Bind drives" = yes/no
+// Enable/disable host/jail path fields if "Bind drives" = yes/no
 function setupAdditionalLogic() {
     const bindYes = document.getElementById("bindDrivesYes");
     const bindNo  = document.getElementById("bindDrivesNo");
@@ -384,33 +411,88 @@ function setupAdditionalLogic() {
     hostPath.disabled = true;
     jailPath.disabled = true;
 
-    bindYes.addEventListener("change", function() {
-        if (this.checked) {
+    bindYes.addEventListener("change", () => {
+        if (bindYes.checked) {
             hostPath.disabled = false;
             jailPath.disabled = false;
         }
     });
-    bindNo.addEventListener("change", function() {
-        if (this.checked) {
+    bindNo.addEventListener("change", () => {
+        if (bindNo.checked) {
             hostPath.disabled = true;
             jailPath.disabled = true;
         }
     });
 }
 
-// If "Docker"=Yes => disable some fields, else enable
+// If "Docker"=Yes => disable certain fields, else enable them
 function toggleFields(disable) {
-    // Which fields do we disable if Docker=Yes?
     const fields = [
       "distro", "release", 
       "intelGpuYes", "intelGpuNo", 
       "nvidiaGpuYes", "nvidiaGpuNo", 
-      "macvlanYes", "macvlanNo"
+      "macvlanYes",  "macvlanNo"
     ];
     fields.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.disabled = disable;
     });
+}
+
+// Setup logic for "Install Jail from custom config file"
+function setupCustomConfigLogic() {
+    const customConfigCheckbox = document.getElementById("customConfigCheck");
+    const configFileNameInput  = document.getElementById("configFileName");
+    const dockerYes = document.getElementById("jailWithDockerYes");
+    const dockerNo  = document.getElementById("jailWithDockerNo");
+
+    function updateCustomConfigFields() {
+        // If Docker is selected => disable custom config
+        const dockerSelected = (dockerYes.checked || dockerNo.checked);
+        if (dockerSelected) {
+            customConfigCheckbox.checked = false;
+            customConfigCheckbox.disabled = true;
+            configFileNameInput.value = "";
+            configFileNameInput.disabled = true;
+        } else {
+            // If Docker not chosen => allow custom config
+            customConfigCheckbox.disabled = false;
+        }
+    }
+
+    function updateFieldsForCustomConfig() {
+        const customChecked = customConfigCheckbox.checked;
+
+        // Disable the Docker checkboxes if custom config is checked
+        dockerYes.disabled = customChecked;
+        dockerNo.disabled  = customChecked;
+
+        // Also disable distro/release, GPU, Macvlan, Bind, Host/Jail path
+        const fieldsToDisable = [
+            "distro", "release",
+            "intelGpuYes", "intelGpuNo",
+            "nvidiaGpuYes", "nvidiaGpuNo",
+            "macvlanYes",  "macvlanNo",
+            "bindDrivesYes", "bindDrivesNo",
+            "hostPath", "jailPath"
+        ];
+        fieldsToDisable.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = customChecked;
+        });
+
+        // Enable configFileName only if customConfig is checked
+        configFileNameInput.disabled = !customChecked;
+    }
+
+    // Listen for changes
+    dockerYes.addEventListener("change", updateCustomConfigFields);
+    dockerNo.addEventListener("change",  updateCustomConfigFields);
+    customConfigCheckbox.addEventListener("change", updateFieldsForCustomConfig);
+
+    // Initialize states
+    updateCustomConfigFields();
+    updateFieldsForCustomConfig();
 }
 
 // Expose the function globally
