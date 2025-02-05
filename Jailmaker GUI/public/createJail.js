@@ -301,6 +301,12 @@ function openCreateJailPopup() {
             if (data.success) {
                 alert(`Jail creation successful!\n\nOutput:\n${data.output}`);
                 overlay.remove(); // close popup
+
+                // ADD: refresh the sandbox listing
+                if (window.refreshSandboxes) {
+                  window.refreshSandboxes();
+                }
+
             } else {
                 alert(`Error creating jail:\n${data.message}`);
                 submitBtn.disabled = false;

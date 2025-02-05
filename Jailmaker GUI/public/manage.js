@@ -88,6 +88,8 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     await fetchSandboxes();
   }
 
+  window.refreshSandboxes = refreshSandboxes;
+
   function cleanOutputLine(line) {
     const cleanedLine = line
       .replace(
