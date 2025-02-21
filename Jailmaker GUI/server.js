@@ -64,7 +64,7 @@ const pool = new Pool({
 
 // Custom routes first:
 app.get("/distros", (req, res) => {
-  const filePath = path.join(__dirname, "public", "distros", "distros"); // This points to the file named "distros"
+  const filePath = path.join(__dirname, "public", "distros", "distros");
   fs.readFile(filePath, "utf8", (err, data) => {
       if (err) {
           console.error("Error reading distro file:", err);
@@ -77,7 +77,7 @@ app.get("/distros", (req, res) => {
 
 app.get("/releases/:distro", (req, res) => {
   const distro = req.params.distro.toLowerCase();
-  const filePath = path.join(__dirname, "public", "distros", distro); // Assuming each distro folder has a text file with releases
+  const filePath = path.join(__dirname, "public", "distros", distro);
   fs.readFile(filePath, "utf8", (err, data) => {
       if (err) {
           console.error("Error reading releases file:", err);
@@ -106,16 +106,12 @@ app.post('/api/register', async (req, res) => {
   if (!username || !password) {
     return res.json({ success: false, message: 'Username and password are required.' });
   }
-
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userQuery = `INSERT INTO users (username, passwordhash) VALUES ($1, $2) RETURNING id`;
     const userResult = await pool.query(userQuery, [username, hashedPassword]);
-
-    // Create an empty details row
     const detailsQuery = `INSERT INTO details (user_id) VALUES ($1)`;
     await pool.query(detailsQuery, [userResult.rows[0].id]);
-
     return res.json({ success: true, message: 'User created successfully.' });
   } catch (err) {
     console.error('Error registering user:', err);
@@ -131,24 +127,19 @@ app.post('/api/login', async (req, res) => {
   if (!username || !password) {
     return res.json({ success: false, message: 'Username and password are required.' });
   }
-
   try {
     const userQuery = `SELECT * FROM users WHERE username = $1`;
     const userResult = await pool.query(userQuery, [username]);
     const user = userResult.rows[0];
-
     if (!user) {
       return res.json({ success: false, message: 'Invalid username or password.' });
     }
-
     const passwordMatch = await bcrypt.compare(password, user.passwordhash);
     if (!passwordMatch) {
       return res.json({ success: false, message: 'Invalid username or password.' });
     }
-
     const detailsQuery = `SELECT serverip, serverport, serveruser, serverpass, paths FROM details WHERE user_id = $1`;
     const detailsResult = await pool.query(detailsQuery, [user.id]);
-
     return res.json({ success: true, details: detailsResult.rows[0] });
   } catch (err) {
     console.error('Error during login:', err);
@@ -164,18 +155,15 @@ app.post('/api/setServerDetails', async (req, res) => {
   if (!username || !serverIp || !serverPort || !serverUser || !serverPassword) {
     return res.json({ success: false, message: 'All fields are required.' });
   }
-
   try {
     const userResult = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
     const userId = userResult.rows[0].id;
-
     const updateQuery = `
       UPDATE details
       SET serverip = $1, serverport = $2, serveruser = $3, serverpass = $4
       WHERE user_id = $5
     `;
     await pool.query(updateQuery, [serverIp, serverPort, serverUser, serverPassword, userId]);
-
     return res.json({ success: true, message: 'Server details saved successfully.' });
   } catch (err) {
     console.error('Error saving server details:', err);
@@ -191,15 +179,12 @@ app.post('/api/setPaths', async (req, res) => {
   if (!username || !paths || paths.length === 0) {
     return res.json({ success: false, message: 'Username and paths are required.' });
   }
-
   try {
     const userResult = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
     const userId = userResult.rows[0].id;
-
     const pathsJson = JSON.stringify(paths);
     const updateQuery = `UPDATE details SET paths = $1 WHERE user_id = $2`;
     await pool.query(updateQuery, [pathsJson, userId]);
-
     return res.json({ success: true, message: 'Paths saved successfully.' });
   } catch (err) {
     console.error('Error saving paths:', err);
@@ -215,7 +200,6 @@ app.get('/api/getSandboxes', async (req, res) => {
   if (!username) {
     return res.json({ success: false, message: 'Username is required.' });
   }
-
   try {
     const userQuery = `
       SELECT details.serverip, details.serverport, details.serveruser, details.serverpass, details.paths 
@@ -225,32 +209,24 @@ app.get('/api/getSandboxes', async (req, res) => {
     `;
     const userResult = await pool.query(userQuery, [username]);
     const userDetails = userResult.rows[0];
-
     if (!userDetails) {
       return res.json({ success: false, message: 'User not found or no details available.' });
     }
-
     const { serverip, serverport, serveruser, serverpass, paths } = userDetails;
     const pathsArray = JSON.parse(paths || '[]');
-
     if (pathsArray.length === 0) {
       return res.json({ success: false, message: 'No paths configured for this user.' });
     }
-
     console.log('User details:', userDetails);
     console.log('Paths to process:', pathsArray);
-
     const sandboxResults = [];
     const sshClient = new Client();
-
     sshClient
       .on('ready', () => {
         console.log('SSH connection established for getSandboxes.');
         let processedPaths = 0;
-
         pathsArray.forEach((path) => {
           const command = `sudo -S sh -c "cd ${path} && ./jlmkr.py list"`;
-
           sshClient.exec(command, { pty: true }, (err, stream) => {
             if (err) {
               console.error(`Error executing command for path ${path}:`, err.message);
@@ -261,15 +237,10 @@ app.get('/api/getSandboxes', async (req, res) => {
               }
               return;
             }
-
             let output = '';
             stream
-              .on('data', (data) => {
-                output += data.toString();
-              })
-              .on('stderr', (stderr) => {
-                console.error(`Error for path ${path}:`, stderr.toString());
-              })
+              .on('data', (data) => { output += data.toString(); })
+              .on('stderr', (stderr) => { console.error(`Error for path ${path}:`, stderr.toString()); })
               .on('close', () => {
                 sandboxResults.push({ path, output: output.trim() || 'No output available.' });
                 console.log(`Output for path ${path}:`, output);
@@ -278,8 +249,6 @@ app.get('/api/getSandboxes', async (req, res) => {
                   res.json({ success: true, sandboxes: sandboxResults, details: userDetails });
                 }
               });
-
-            // Provide the sudo password
             stream.write(`${serverpass}\n`);
           });
         });
@@ -308,7 +277,6 @@ app.get('/api/getUserDetails', async (req, res) => {
   if (!username) {
     return res.json({ success: false, message: 'Username is required.' });
   }
-
   try {
     const userQuery = `
       SELECT u.username, d.serverip, d.serverport, d.serveruser, d.serverpass, d.paths
@@ -318,14 +286,10 @@ app.get('/api/getUserDetails', async (req, res) => {
     `;
     const userResult = await pool.query(userQuery, [username]);
     const userDetails = userResult.rows[0];
-
     if (!userDetails) {
       return res.json({ success: false, message: 'User not found.' });
     }
-
-    // parse paths
     const paths = userDetails.paths ? JSON.parse(userDetails.paths) : [];
-
     res.json({
       success: true,
       details: {
@@ -348,13 +312,10 @@ app.get('/api/getUserDetails', async (req, res) => {
 //---------------------------------------------------
 app.post('/api/controlSandbox', async (req, res) => {
   const { action, name, path, username } = req.body;
-
   if (!action || !name || !path || !username) {
     return res.json({ success: false, message: 'Action, sandbox name, path, and username are required.' });
   }
-
   try {
-    // Retrieve user details
     const userQuery = `
       SELECT details.serverip, details.serverport, details.serveruser, details.serverpass
       FROM details
@@ -363,15 +324,11 @@ app.post('/api/controlSandbox', async (req, res) => {
     `;
     const userResult = await pool.query(userQuery, [username]);
     const userDetails = userResult.rows[0];
-
     if (!userDetails) {
       return res.json({ success: false, message: 'User details not found.' });
     }
-
     const { serverip, serverport, serveruser, serverpass } = userDetails;
-
     if (action !== 'remove') {
-      // Start/Stop/Restart
       const sshClient = new Client();
       sshClient
         .on('ready', () => {
@@ -385,12 +342,8 @@ app.post('/api/controlSandbox', async (req, res) => {
             let output = '';
             let errorOutput = '';
             stream
-              .on('data', (data) => {
-                output += data.toString();
-              })
-              .stderr.on('data', (data) => {
-                errorOutput += data.toString();
-              })
+              .on('data', (data) => { output += data.toString(); })
+              .stderr.on('data', (data) => { errorOutput += data.toString(); })
               .on('close', () => {
                 sshClient.end();
                 if (errorOutput && !errorOutput.includes('Running as unit:')) {
@@ -422,8 +375,7 @@ app.post('/api/controlSandbox', async (req, res) => {
         });
       return;
     }
-
-    // remove => pipe lines
+    // Remove action using piped input:
     console.log(`[REMOVE pipe] for sandbox "${name}"...`);
     const sshClient = new Client();
     sshClient
@@ -464,7 +416,6 @@ ${pipeline} | sudo -S -p '' sh -c "cd ${path} && ./jlmkr.py remove '${name}'"
         username: serveruser,
         password: serverpass,
       });
-
   } catch (err) {
     console.error('Error:', err.message);
     return res.json({ success: false, message: `Error: ${err.message}` });
@@ -475,31 +426,19 @@ ${pipeline} | sudo -S -p '' sh -c "cd ${path} && ./jlmkr.py remove '${name}'"
 // updateUserDetails
 //---------------------------------------------------
 app.post('/api/updateUserDetails', async (req, res) => {
-  const {
-    username,
-    newUsername,
-    serverIp,
-    serverPort,
-    serverUser,
-    serverPassword,
-    paths
-  } = req.body;
-
+  const { username, newUsername, serverIp, serverPort, serverUser, serverPassword, paths } = req.body;
   if (!username || !newUsername || !serverIp || !serverPort || !serverUser || !serverPassword) {
     return res.status(400).json({ success: false, message: 'All fields are required.' });
   }
-
   try {
     const userQuery = `SELECT id FROM users WHERE username = $1`;
     const userResult = await pool.query(userQuery, [username]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
-
     const userId = userResult.rows[0].id;
     const updateUserQuery = `UPDATE users SET username = $1 WHERE id = $2`;
     await pool.query(updateUserQuery, [newUsername, userId]);
-
     const updateDetailsQuery = `
       UPDATE details
       SET serverip = $1, serverport = $2, serveruser = $3, serverpass = $4, paths = $5
@@ -513,7 +452,6 @@ app.post('/api/updateUserDetails', async (req, res) => {
       JSON.stringify(paths),
       userId,
     ]);
-
     res.json({ success: true, message: 'Details updated successfully.' });
   } catch (err) {
     console.error('Error updating user details:', err);
@@ -529,7 +467,6 @@ app.post('/api/saveUserDetails', async (req, res) => {
   if (!username || !serverIp || !serverPort || !serverUser || !serverPassword || !paths) {
     return res.status(400).json({ success: false, message: 'All fields are required.' });
   }
-
   try {
     const userQuery = 'SELECT id FROM users WHERE username = $1';
     const userResult = await pool.query(userQuery, [username]);
@@ -598,7 +535,6 @@ app.post('/api/runSSHCommand', async (req, res) => {
   if (!username || !command) {
     return res.json({ success: false, message: 'Username and command are required.' });
   }
-
   try {
     const userQuery = `
       SELECT d.serverip, d.serverport, d.serveruser, d.serverpass
@@ -613,12 +549,10 @@ app.post('/api/runSSHCommand', async (req, res) => {
     }
     const { serverip, serverport, serveruser, serverpass } = userDetails;
     const sshClient = new Client();
-
     sshClient
       .on('ready', () => {
         console.log(`SSH ephemeral ready. Will run command as root: ${command}`);
         const suCommand = `echo ${serverpass} | sudo -S -p '' /usr/bin/bash -c "${command}"`;
-
         sshClient.exec(suCommand, (err, stream) => {
           if (err) {
             sshClient.end();
@@ -627,12 +561,8 @@ app.post('/api/runSSHCommand', async (req, res) => {
           let output = '';
           let errorOutput = '';
           stream
-            .on('data', (data) => {
-              output += data.toString();
-            })
-            .stderr.on('data', (data) => {
-              errorOutput += data.toString();
-            })
+            .on('data', (data) => { output += data.toString(); })
+            .stderr.on('data', (data) => { errorOutput += data.toString(); })
             .on('close', () => {
               sshClient.end();
               const combined = output + (errorOutput ? '\n' + errorOutput : '');
@@ -694,7 +624,7 @@ wss.on('connection', async (ws, req) => {
   const sshClient = new Client();
   sshClient
     .on('ready', () => {
-      // Request an interactive shell with a defined terminal type and dimensions.
+      // Create an interactive shell with proper PTY settings.
       sshClient.shell({ term: 'xterm-256color', cols: 120, rows: 40 }, (err, stream) => {
         if (err) {
           ws.send(`Error starting shell: ${err.message}`);
@@ -702,23 +632,28 @@ wss.on('connection', async (ws, req) => {
           sshClient.end();
           return;
         }
-        // Immediately configure the remote shell to use the correct erase character.
-        stream.write("stty erase '^?'\n");
-
-        // Optionally, if you want to switch to root immediately, uncomment the next line:
-        // stream.write(`echo ${serverpass} | sudo -S -p '' su - root\n`);
-
+        // Relay data from the SSH stream to the client.
         stream.on('data', (data) => {
-          ws.send(data.toString(), { binary: false });
+          ws.send(data.toString('utf-8'), { binary: false });
         });
         stream.stderr.on('data', (data) => {
-          ws.send(data.toString(), { binary: false });
+          ws.send(data.toString('utf-8'), { binary: false });
         });
         stream.on('close', () => {
           ws.close();
           sshClient.end();
         });
+        // Consolidated message handler for resize events and normal input.
         ws.on('message', (msg) => {
+          try {
+            const data = JSON.parse(msg);
+            if (data.type === 'resize') {
+              stream.setWindow(data.rows, data.cols, 0, 0);
+              return;
+            }
+          } catch (e) {
+            // Not JSON; treat as normal input.
+          }
           stream.write(msg);
         });
         ws.on('close', () => {
@@ -736,5 +671,4 @@ wss.on('connection', async (ws, req) => {
       username: serveruser,
       password: serverpass,
     });
-
 });

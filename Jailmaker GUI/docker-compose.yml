@@ -7,7 +7,7 @@ services:
     restart: always
     build: /root/jailmaker/db-folder
     environment:
-      POSTGRES_USER: jailmaker
+      POSTGRES_USER: yourdbuser
       POSTGRES_PASSWORD: yourpassword
       POSTGRES_DB: jailmakerdb
     volumes:
@@ -27,7 +27,7 @@ services:
       # The Node.js app reads these to connect to Postgres
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: jailmaker
+      DB_USER: yourdbuser
       DB_PASS: yourpassword
       DB_NAME: jailmakerdb
     networks:
@@ -35,13 +35,15 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
-    container_name: pgadmin_container
+    container_name: pgadmin
     restart: always
     environment:
       PGADMIN_DEFAULT_EMAIL: youremailadress
-      PGADMIN_DEFAULT_PASSWORD: yourpassword
+      PGADMIN_DEFAULT_PASSWORD: yourpgadminpassword
     ports:
       - "5050:80" # Exposes pgAdmin on port 5050
+    volumes:
+      - /root/jailmaker/servers.json:/pgadmin4/servers.json:ro
     networks:
       - jailmaker-net
     depends_on:

@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "jailmaker-db",
+      "Group": "Servers",
+      "Host": "db",
+      "Port": 5432,
+      "Username": "yourdbuser",
+      "Password": "yourpassword",
+      "SSLMode": "prefer",
+      "MaintenanceDB": "jailmakerdb"
+    }
+  }
+}
+

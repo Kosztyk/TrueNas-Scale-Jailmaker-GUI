@@ -16,14 +16,24 @@ function openCreateJailPopup() {
     overlay.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
     overlay.style.zIndex = "9999";
 
+    // Center the popup with flex
+    overlay.style.display = "flex";
+    overlay.style.justifyContent = "center";
+    overlay.style.alignItems = "center";
+
     // Create the popup container
     const popup = document.createElement("div");
     popup.id = "createJailPopup";
-    popup.style.position = "absolute";
-    popup.style.top = "10%";
-    popup.style.left = "30%";
-    popup.style.width = "60%";
+    
+    // Remove the old absolute top/left so it starts truly centered
+    // Let flex handle initial centering. 
+    // We'll only switch to absolute if the user starts dragging.
+    popup.style.width = "80%";
     popup.style.height = "80%";
+    popup.style.maxWidth = "1200px";  // optional limit
+    popup.style.maxHeight = "800px";  // optional limit
+
+    // Remaining styling
     popup.style.backgroundColor = "rgba(255, 255, 255, 0.8)";
     popup.style.borderRadius = "8px";
     popup.style.boxShadow = "0 0 10px rgba(0, 0, 0, 0.3)";
@@ -338,6 +348,9 @@ function openCreateJailPopup() {
             const pos2 = pos4 - e.clientY;
             pos3 = e.clientX;
             pos4 = e.clientY;
+            // The first time user drags, set the popup to absolute
+            popup.style.position = "absolute";
+            // Adjust top/left by how far the mouse has moved
             popup.style.top = (popup.offsetTop - pos2) + "px";
             popup.style.left = (popup.offsetLeft - pos1) + "px";
         }

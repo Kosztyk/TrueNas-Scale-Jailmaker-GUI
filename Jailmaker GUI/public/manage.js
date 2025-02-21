@@ -6,7 +6,7 @@
  * - Start/Stop/Restart
  * - Remove with confirmation
  * - Ephemeral route => /api/runSSHCommand
- * - NEW: "Connect SSH" => permanent WebSocket
+ * - NEW: "Connect SSH" => permanent WebSocket terminal
  **********************************************/
 
 const sandboxesContainer = document.getElementById('sandboxesContainer');
@@ -39,7 +39,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         allSandboxes = data.sandboxes;
         allPaths = [...new Set(allSandboxes.map((s) => s.path))];
 
-        // left pane
+        // Left pane: create path boxes
         allPaths.forEach((path, index) => {
           const pathBox = document.createElement('div');
           pathBox.classList.add('path-box');
@@ -51,19 +51,18 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         });
 
         // ADD "CREATE JAIL" BUTTON HERE
-        const createJailBtn = document.createElement("div");
-        createJailBtn.classList.add("path-box");
-        createJailBtn.textContent = "Create Jail";
-        createJailBtn.style.backgroundColor = "#007bff";
-        createJailBtn.style.color = "white";
-        createJailBtn.style.fontWeight = "bold";
-        createJailBtn.style.marginTop = "10px";
-        createJailBtn.style.cursor = "pointer";
-        createJailBtn.addEventListener("click", openCreateJailPopup);
-
+        const createJailBtn = document.createElement('div');
+        createJailBtn.classList.add('path-box');
+        createJailBtn.textContent = 'Create Jail';
+        createJailBtn.style.backgroundColor = '#007bff';
+        createJailBtn.style.color = 'white';
+        createJailBtn.style.fontWeight = 'bold';
+        createJailBtn.style.marginTop = '10px';
+        createJailBtn.style.cursor = 'pointer';
+        createJailBtn.addEventListener('click', openCreateJailPopup);
         pathsList.appendChild(createJailBtn);
 
-        // connect SSH button
+        // Connect SSH button
         const sshConnectBtn = document.createElement('div');
         sshConnectBtn.classList.add('path-box');
         sshConnectBtn.textContent = 'Connect SSH';
@@ -87,15 +86,11 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
   async function refreshSandboxes() {
     await fetchSandboxes();
   }
-
   window.refreshSandboxes = refreshSandboxes;
 
   function cleanOutputLine(line) {
     const cleanedLine = line
-      .replace(
-        /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-        ''
-      )
+      .replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
       .trim();
     if (
       cleanedLine.startsWith('NAME') ||
@@ -128,37 +123,22 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     `;
     popup.textContent = message;
     document.body.appendChild(popup);
-    setTimeout(() => {
-      popup.remove();
-    }, 5000);
+    setTimeout(() => popup.remove(), 5000);
   }
 
   function displaySandboxes(sandboxes) {
     sandboxesContainer.innerHTML = '';
-  
     sandboxes.forEach((sandbox) => {
       const outputLines = sandbox.output.split('\n').map(cleanOutputLine).filter(Boolean);
-  
       outputLines.forEach((line) => {
-        // Split the line into tokens; if not as expected, skip it.
         const parts = line.split(/\s+/);
         if (parts.length < 7) return;
-        
         const [name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses] = parts;
-        
-        // Build the icon path. If "os" is defined, use images/<os>.png (all lower-case);
-        // otherwise, default to images/linux.png.
-        const iconPath = os ? "images/" + os.toLowerCase() + ".png" : "images/linux.png";
-  
-        // Create a sandbox card.
+        const iconPath = os ? 'images/' + os.toLowerCase() + '.png' : 'images/linux.png';
         const sandboxCard = document.createElement('div');
         sandboxCard.classList.add('sandbox-card');
-  
-        // IMPORTANT: Force the sandbox card to be the positioning context.
-        // (If your CSS doesn't already do this, you can set it inline as shown.)
         sandboxCard.style.position = 'relative';
-        sandboxCard.style.paddingRight = '60px'; // Adjust as needed for the icon
-  
+        sandboxCard.style.paddingRight = '60px';
         sandboxCard.innerHTML = `
           <h4>${name} (${os} ${version})</h4>
           <p><strong>IP:</strong> ${addresses.join(' ') || 'N/A'}</p>
@@ -174,13 +154,11 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
             <button class="control-btn" data-action="restart" data-name="${name}" data-path="${sandbox.path}">Restart</button>
             <button class="control-btn" data-action="remove" data-name="${name}" data-path="${sandbox.path}">Remove</button>
           </div>
-          <!-- OS Icon: if the specific icon is not found, fallback to images/linux.png -->
           <img src="${iconPath}" onerror="this.onerror=null; this.src='images/linux.png'" class="os-icon" alt="${os ? os : 'Linux'} Icon" />
         `;
         sandboxesContainer.appendChild(sandboxCard);
       });
     });
-  
     const controlButtons = document.querySelectorAll('.control-btn');
     controlButtons.forEach((button) => {
       button.addEventListener('click', async () => {
@@ -211,6 +189,10 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
                 await refreshSandboxes();
               }
             });
+          } else if (action === 'shell') {
+            // Open permanent SSH terminal for the sandbox.
+            // If you have a custom function to do so:
+            openSandboxShell(name, path, username, serverPassword);
           } else {
             const res = await fetch('/api/controlSandbox', {
               method: 'POST',
@@ -233,7 +215,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         }
       });
     });
-  }  
+  }
 
   function filterSandboxes(path, activeElement) {
     Array.from(pathsList.children).forEach((item) => item.classList.remove('active'));
@@ -247,7 +229,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     displaySandboxes(allSandboxes);
   });
 
-  // settings
+  // Settings popup
   settingsBtn.addEventListener('click', async () => {
     settingsPopup.classList.remove('hidden');
     try {
@@ -301,7 +283,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     }
   });
 
-  // logout
+  // Logout
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
@@ -371,9 +353,10 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
 
   // =============================================
   // NEW: Permanent SSH terminal via WebSocket
+  // Updated to center in the screen using Flex
   // =============================================
   function createSSHConsolePopup() {
-    // Create overlay
+    // Create overlay for terminal popup
     const overlay = document.createElement('div');
     overlay.style.position = 'fixed';
     overlay.style.top = '0';
@@ -382,57 +365,62 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     overlay.style.height = '100%';
     overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
     overlay.style.zIndex = '9999';
-  
-    // Create popup container (positioned so it doesn't cover the left pane)
+    // Use flex to center the popup
+    overlay.style.display = 'flex';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+
+    // Create popup container (draggable and resizable)
     const popup = document.createElement('div');
-    popup.style.position = 'absolute';
-    popup.style.top = '10%';
-    popup.style.left = '30%';
-    popup.style.width = '60%';
+    // Add ID for easier media-query styling on small screens
+    popup.id = 'sshPopup';
+
+    // Instead of absolute top/left, we do a flexible size
+    popup.style.width = '80%';
     popup.style.height = '80%';
-    popup.style.backgroundColor = 'rgba(255, 255, 255, 0.8)'; // 20% transparent
+    popup.style.maxWidth = '1200px';   // optional limit
+    popup.style.maxHeight = '800px';   // optional limit
+    popup.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
     popup.style.borderRadius = '8px';
     popup.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
     popup.style.display = 'flex';
     popup.style.flexDirection = 'column';
     popup.style.padding = '10px';
-    popup.style.resize = "both";
-    popup.style.overflow = "auto";
+    popup.style.resize = 'both';
+    popup.style.overflow = 'auto';
 
     const title = document.createElement('h3');
     title.textContent = 'Permanent SSH Terminal';
     popup.appendChild(title);
-    
-   // --- Make the popup draggable using the title as the handle ---
-  title.addEventListener('mousedown', dragMouseDown);
-  function dragMouseDown(e) {
-    e = e || window.event;
-    e.preventDefault();
-    // Get the initial mouse cursor position
-    let pos3 = e.clientX;
-    let pos4 = e.clientY;
-    document.onmouseup = closeDragElement;
-    document.onmousemove = elementDrag;
-    
-    function elementDrag(e) {
+
+    // Make the popup draggable using the title as the handle
+    title.addEventListener('mousedown', dragMouseDown);
+    function dragMouseDown(e) {
       e = e || window.event;
       e.preventDefault();
-      // Calculate the new cursor position:
-      let pos1 = pos3 - e.clientX;
-      let pos2 = pos4 - e.clientY;
-      pos3 = e.clientX;
-      pos4 = e.clientY;
-      // Set the element's new position:
-      popup.style.top = (popup.offsetTop - pos2) + "px";
-      popup.style.left = (popup.offsetLeft - pos1) + "px";
+      let pos3 = e.clientX;
+      let pos4 = e.clientY;
+      document.onmouseup = closeDragElement;
+      document.onmousemove = elementDrag;
+      function elementDrag(e) {
+        e = e || window.event;
+        e.preventDefault();
+        let pos1 = pos3 - e.clientX;
+        let pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        // If user drags it, update the container's position
+        // You can keep "position: absolute" but since we're centering with flex,
+        // the user can drag it around within the overlay.
+        popup.style.position = 'absolute';
+        popup.style.top = (popup.offsetTop - pos2) + 'px';
+        popup.style.left = (popup.offsetLeft - pos1) + 'px';
+      }
+      function closeDragElement() {
+        document.onmouseup = null;
+        document.onmousemove = null;
+      }
     }
-    
-    function closeDragElement() {
-      document.onmouseup = null;
-      document.onmousemove = null;
-    }
-  }
-  // --- End draggable code ---
 
     // Create container for the xterm.js terminal
     const terminalContainer = document.createElement('div');
@@ -442,21 +430,24 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     terminalContainer.style.height = '100%';
     popup.appendChild(terminalContainer);
 
-    // (Optional) Input field for sending commands via button
+    // (Optional) Input field for sending commands
     const inputWrapper = document.createElement('div');
     inputWrapper.style.display = 'flex';
     inputWrapper.style.marginTop = '10px';
+
     const cmdInput = document.createElement('input');
     cmdInput.type = 'text';
     cmdInput.placeholder = 'Type your command...';
     cmdInput.style.flex = '1';
+
     const sendBtn = document.createElement('button');
     sendBtn.textContent = 'Send';
     sendBtn.style.marginLeft = '5px';
+
     inputWrapper.appendChild(cmdInput);
     inputWrapper.appendChild(sendBtn);
     popup.appendChild(inputWrapper);
-  
+
     const closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
     closeBtn.style.marginTop = '10px';
@@ -465,176 +456,205 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       document.body.removeChild(overlay);
     });
     popup.appendChild(closeBtn);
-  
+
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
-  
+
     // Establish WebSocket connection for permanent SSH
     const wsUrl = `ws://${location.hostname}:${location.port}/ws/permanentSsh?username=${encodeURIComponent(username)}`;
     const ws = new WebSocket(wsUrl);
-  
-    // ===== Begin xterm.js integration with xterm-fit addon =====
-  
+
+    // ===== Begin xterm.js integration with FitAddon =====
     // Initialize the xterm.js terminal
     const term = new Terminal({
-      convertEol: true
+      convertEol: false, // Keep newline conversion off for interactive apps
+      scrollback: 1000,
+      cursorBlink: true,
+      theme: { background: '#1e1e1e', foreground: '#cccccc' }
     });
     term.open(terminalContainer);
-  
-    // Initialize the xterm-fit addon for auto-resizing
+
+    // Load the FitAddon
     const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     fitAddon.fit();
-  
-    // Listen to window resize events and adjust terminal size
+
+    // Immediately send the terminal size to the server
+    const initialResizeMsg = {
+      type: 'resize',
+      cols: term.cols,
+      rows: term.rows,
+    };
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(initialResizeMsg));
+    }
+
+    // Listen for window resize events to re-fit the terminal
     window.addEventListener('resize', () => {
       fitAddon.fit();
-    });
-  
-    // Updated stripAnsi function to remove unwanted escape sequences while preserving newlines and basic formatting
-    function stripAnsi(str) {
-      // Remove ANSI escape sequences
-      str = str.replace(/[\u001B\u009B][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-      // Remove control characters except newline (\n), carriage return (\r), and tab (\t)
-      str = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
-      // Remove trailing prompt markers (e.g. extra "#" at the end of lines)
-      return str.replace(/\s*#\s*$/gm, '');
-    }
-  
-    // Let xterm.js handle keys naturally (via onData)
-    term.onData(data => {
       if (ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: 'resize',
+            cols: term.cols,
+            rows: term.rows,
+          })
+        );
+      }
+    });
+
+    // Send keystrokes to the server
+    term.onData(data => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(data);
       }
     });
-  
-    // Setup WebSocket message handler to write data to the terminal (without stripping ANSI for interactive apps)
+
+    // Handle incoming data from server
     ws.onopen = () => {
       term.write('\r\n[Connected to permanent SSH session]\r\n');
-      // Immediately send command to set the remote shell's erase character to '^?'
-      ws.send("stty erase '^?'\n");
+      // Example usage if you want to auto-sudo:
+      ws.send("stty erase '^?'\r");
+      if (serverPassword) {
+        ws.send(`echo ${serverPassword} | sudo -S -p '' /bin/bash -i\r`);
+      }
     };
-    ws.onmessage = (evt) => {
-      // For interactive editors like nano, do not strip ANSI sequences.
-      // Uncomment the line below if you want raw output:
+
+    ws.onmessage = evt => {
       term.write(evt.data);
-      // If you want to try stripping, use:
-      // const text = stripAnsi(evt.data);
-      // term.write(text);
     };
+
     ws.onclose = () => {
       term.write('\r\n[SSH session closed]\r\n');
     };
-    ws.onerror = (err) => {
+
+    ws.onerror = err => {
       term.write(`\r\n[WebSocket error: ${err}]\r\n`);
     };
-  
-    // Additionally, allow sending commands via the input field (optional)
-    cmdInput.addEventListener('keydown', (e) => {
+    // ===== End xterm.js integration with FitAddon =====
+
+    // Send commands typed into the input box
+    function sendCommand() {
+      const cmd = cmdInput.value + '\r';
+      cmdInput.value = '';
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(cmd);
+      } else {
+        term.write('\r\n[Error: WebSocket not open]\r\n');
+      }
+    }
+    cmdInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         e.preventDefault();
         sendCommand();
       }
     });
     sendBtn.addEventListener('click', sendCommand);
-    function sendCommand() {
-      const cmd = cmdInput.value + '\r\n';
-      cmdInput.value = '';
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(cmd);
-      } else {
-        term.write('\r\n[Error: WebSocket not open]\r\n');
-      }
-    }
-    // ===== End xterm.js integration with xterm-fit addon =====
-  }   
+  }
 
-    // ====Create Jails script========
-    document.addEventListener("DOMContentLoaded", function () {
-      const pathsList = document.getElementById("paths-list");
-    
-      if (!pathsList) {
-        console.error("Error: pathsList element not found.");
-        return;
-      }
-    
-      // Dynamically load scripts
-      function loadScript(src, callback) {
-        const script = document.createElement("script");
-        script.src = src;
-        script.onload = callback;
-        script.onerror = function () {
-          console.error(`Failed to load script: ${src}`);
-        };
-        document.body.appendChild(script);
-      }
-    
-      // Load jailData.js first, then createJail.js
-      loadScript("jailData.js", function () {
-        loadScript("createJail.js", function () {
-          if (typeof openCreateJailPopup !== "function") {
-            console.error("Error: openCreateJailPopup is not defined. Check createJail.js.");
-            return;
-          }
-    
-          // Create "Create Jail" button
-          const createJailBtn = document.createElement("button");
-          createJailBtn.id = "createJailBtn";
-          createJailBtn.textContent = "Create Jail";
-          createJailBtn.classList.add("create-jail-button");
-          createJailBtn.addEventListener("click", openCreateJailPopup);
-    
-          pathsList.appendChild(createJailBtn);
-        });
+  // ====Create Jails script====
+  document.addEventListener('DOMContentLoaded', function () {
+    const pathsList = document.getElementById('paths-list');
+    if (!pathsList) {
+      console.error('Error: pathsList element not found.');
+      return;
+    }
+    function loadScript(src, callback) {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = callback;
+      script.onerror = function () {
+        console.error(`Failed to load script: ${src}`);
+      };
+      document.body.appendChild(script);
+    }
+    loadScript('jailData.js', function () {
+      loadScript('createJail.js', function () {
+        if (typeof openCreateJailPopup !== 'function') {
+          console.error('Error: openCreateJailPopup is not defined. Check createJail.js.');
+          return;
+        }
+        const createJailBtn = document.createElement('button');
+        createJailBtn.id = 'createJailBtn';
+        createJailBtn.textContent = 'Create Jail';
+        createJailBtn.classList.add('create-jail-button');
+        createJailBtn.addEventListener('click', openCreateJailPopup);
+        pathsList.appendChild(createJailBtn);
       });
     });
-    
-      // settings popup dragable
-      document.addEventListener("DOMContentLoaded", function() {
-  const settingsPopup = document.getElementById("settingsPopup");
-  if (!settingsPopup) return;
+  });
 
-  // Make sure the settings popup is resizable via CSS
-  settingsPopup.style.resize = "both";
-  settingsPopup.style.overflow = "auto";
+  // Toggle left pane on small screens
+  document.getElementById('toggleLeftPane').addEventListener('click', function () {
+    document.getElementById('left-pane').classList.toggle('open');
+  });
 
-  // Use the <h2> element inside the settings popup as the draggable handle.
-  const settingsHeader = settingsPopup.querySelector("h2");
-  if (settingsHeader) {
-    settingsHeader.style.cursor = "move"; // indicate draggable
-    settingsHeader.addEventListener("mousedown", dragSettingsPopup);
+  // OPTIONAL: Enable swipe gestures to open/close the left pane
+  let touchStartX = 0;
+  let touchEndX = 0;
+  document.addEventListener(
+    'touchstart',
+    function (e) {
+      touchStartX = e.changedTouches[0].screenX;
+    },
+    false
+  );
+  document.addEventListener(
+    'touchend',
+    function (e) {
+      touchEndX = e.changedTouches[0].screenX;
+      handleSwipe();
+    },
+    false
+  );
+  function handleSwipe() {
+    if (touchEndX > touchStartX + 50) {
+      document.getElementById('left-pane').classList.add('open');
+    }
+    if (touchEndX < touchStartX - 50) {
+      document.getElementById('left-pane').classList.remove('open');
+    }
   }
 
-  function dragSettingsPopup(e) {
-    e = e || window.event;
-    e.preventDefault();
-    // Get the initial mouse cursor position
-    let pos3 = e.clientX;
-    let pos4 = e.clientY;
-    document.onmouseup = closeDragElement;
-    document.onmousemove = elementDrag;
+  // Settings popup draggable
+  document.addEventListener('DOMContentLoaded', function () {
+    const settingsPopup = document.getElementById('settingsPopup');
+    if (!settingsPopup) return;
+    settingsPopup.style.resize = 'both';
+    settingsPopup.style.overflow = 'auto';
 
-    function elementDrag(e) {
+    const settingsHeader = settingsPopup.querySelector('h2');
+    if (settingsHeader) {
+      settingsHeader.style.cursor = 'move';
+      settingsHeader.addEventListener('mousedown', dragSettingsPopup);
+    }
+
+    function dragSettingsPopup(e) {
       e = e || window.event;
       e.preventDefault();
-      // Calculate the new cursor position:
-      let pos1 = pos3 - e.clientX;
-      let pos2 = pos4 - e.clientY;
-      pos3 = e.clientX;
-      pos4 = e.clientY;
-      // Set the new position of the popup
-      settingsPopup.style.top = (settingsPopup.offsetTop - pos2) + "px";
-      settingsPopup.style.left = (settingsPopup.offsetLeft - pos1) + "px";
+      let pos3 = e.clientX;
+      let pos4 = e.clientY;
+      document.onmouseup = closeDragElement;
+      document.onmousemove = elementDrag;
+
+      function elementDrag(e) {
+        e = e || window.event;
+        e.preventDefault();
+        let pos1 = pos3 - e.clientX;
+        let pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        settingsPopup.style.top = settingsPopup.offsetTop - pos2 + 'px';
+        settingsPopup.style.left = settingsPopup.offsetLeft - pos1 + 'px';
+      }
+      function closeDragElement() {
+        document.onmouseup = null;
+        document.onmousemove = null;
+      }
     }
+  });
 
-    function closeDragElement() {
-      document.onmouseup = null;
-      document.onmousemove = null;
-    }
-  }
-});
-
-
-  // fetch sandboxes on load
+  // Fetch sandboxes on load
   fetchSandboxes();
 }
+

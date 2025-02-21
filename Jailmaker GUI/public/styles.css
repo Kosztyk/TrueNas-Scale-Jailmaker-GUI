@@ -510,3 +510,85 @@ body, html {
 .popup-buttons button#closePopupBtn:hover {
   background-color: #c82333;
 }
+
+/* Add this to your existing stylesheet */
+.control-btn[data-action="remove"] {
+  background-color: #dc3545; /* or "red" */
+  color: #fff;
+}
+
+.control-btn[data-action="remove"]:hover {
+  background-color: #c82333;
+}
+
+/* By default, hide the toggle button */
+#toggleLeftPane {
+  display: none;
+}
+
+/* On small screens, display the toggle button */
+@media (max-width: 600px) {
+  #toggleLeftPane {
+    display: block;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 1100;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    padding: 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+  
+  /* Hide the left pane by default on small screens */
+  #left-pane {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    height: 100%;
+    background-color: #f3f4f6;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+  }
+  /* Slide the left pane into view when the .open class is added */
+  #left-pane.open {
+    transform: translateX(0);
+  }
+  
+  /* Adjust the right pane to take up full width */
+  #right-pane {
+    width: 100%;
+  }
+}
+
+
+@media (max-width: 600px) {
+  /* SSH popup full screen */
+  #sshPopup {
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0 !important;
+    max-width: none !important;
+    max-height: none !important;
+  }
+
+  /* CreateJail popup full screen */
+  #createJailPopup {
+    position: fixed !important;
+    top: 2% !important;
+    left: 2% !important;
+    width: 96% !important;
+    height: 96% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    overflow: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+  }
+}
+
