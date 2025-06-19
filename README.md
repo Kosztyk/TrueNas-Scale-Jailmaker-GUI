@@ -53,3 +53,63 @@ Second Page - server credentials
        download the files on the host where docker compose is installed, execute - docker compose build then docker compose up -d
 
   #   Access it from http://host IP:8080
+
+  #   Install it using docker-compose.yaml
+      example of docker-compose.yaml file 
+  ```
+services:
+  db:
+    image: postgres:15
+    container_name: jailmaker-db
+    restart: always
+    build: /root/jailmaker/db-folder
+    environment:
+      POSTGRES_USER: jailmaker
+      POSTGRES_PASSWORD: 1FloareA1
+      POSTGRES_DB: jailmakerdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - jailmaker-net
+    ports:
+      - "5432:5432"
+
+  jailmaker-gui:
+    image: kosztyk/jailmaker-jailmaker-gui:latest
+    container_name: jailmaker-gui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # The Node.js app reads these to connect to Postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: jailmaker
+      DB_PASS: 1FloareA1
+      DB_NAME: jailmakerdb
+    networks:
+      - jailmaker-net
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: constantin.nartea@hotmail.com
+      PGADMIN_DEFAULT_PASSWORD: 1FloareA1
+    ports:
+      - "5050:80" # Exposes pgAdmin on port 5050
+    volumes:
+      - /root/jailmaker/servers.json:/pgadmin4/servers.json:ro
+    networks:
+      - jailmaker-net
+    depends_on:
+      - db
+
+networks:
+  jailmaker-net:
+    driver: bridge
+
+volumes:
+  db-data:
+```
