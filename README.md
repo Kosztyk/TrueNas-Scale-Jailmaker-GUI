@@ -38,9 +38,14 @@ Second Page - server credentials
 
    - Create New Jail
      Here you can choose from diffrent options:
+     
          -  with Docker already installed or without Docker - _for this function to work you need to create the file "jailmakerconfig" outside jailmaker folder. Ex. if your jails path is /mnt/tank/Jailmaker/jailmaker/ the              file needs to be placed in /mnt/tank/Jailmaker/_
+     
+         - creeate jail using a config file - _for this function to work you need to create the file "jailmakerconfig" outside jailmaker folder. Ex. if your jails path is /mnt/tank/Jailmaker/jailmaker/ the                            file needs to be placed in /mnt/tank/Jailmaker/_
+     
          - host paths binded to the jails or not;
-         - choose wahat failvor you want to install
+     
+         - choose what failvor you want to install
      
 <img width="1703" alt="Screenshot 2025-02-04 at 20 38 34" src="https://github.com/user-attachments/assets/a7cfae1b-1876-4930-8e8e-81634ed18da9" />
 
