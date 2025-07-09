@@ -565,30 +565,3 @@ body, html {
     width: 100%;
   }
 }
-
-
-@media (max-width: 600px) {
-  /* SSH popup full screen */
-  #sshPopup {
-    width: 100% !important;
-    height: 100% !important;
-    border-radius: 0 !important;
-    max-width: none !important;
-    max-height: none !important;
-  }
-
-  /* CreateJail popup full screen */
-  #createJailPopup {
-    position: fixed !important;
-    top: 2% !important;
-    left: 2% !important;
-    width: 96% !important;
-    height: 96% !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    overflow: auto !important;
-    max-width: none !important;
-    max-height: none !important;
-  }
-}
-

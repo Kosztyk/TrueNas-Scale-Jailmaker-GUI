@@ -51,15 +51,15 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         });
 
         // ADD "CREATE JAIL" BUTTON HERE
-        const createJailBtn = document.createElement('div');
-        createJailBtn.classList.add('path-box');
-        createJailBtn.textContent = 'Create Jail';
-        createJailBtn.style.backgroundColor = '#007bff';
-        createJailBtn.style.color = 'white';
-        createJailBtn.style.fontWeight = 'bold';
-        createJailBtn.style.marginTop = '10px';
-        createJailBtn.style.cursor = 'pointer';
-        createJailBtn.addEventListener('click', openCreateJailPopup);
+        const createJailBtn = document.createElement("div");
+        createJailBtn.classList.add("path-box");
+        createJailBtn.textContent = "Create Jail";
+        createJailBtn.style.backgroundColor = "#007bff";
+        createJailBtn.style.color = "white";
+        createJailBtn.style.fontWeight = "bold";
+        createJailBtn.style.marginTop = "10px";
+        createJailBtn.style.cursor = "pointer";
+        createJailBtn.addEventListener("click", openCreateJailPopup);
         pathsList.appendChild(createJailBtn);
 
         // Connect SSH button
@@ -134,7 +134,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         const parts = line.split(/\s+/);
         if (parts.length < 7) return;
         const [name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses] = parts;
-        const iconPath = os ? 'images/' + os.toLowerCase() + '.png' : 'images/linux.png';
+        const iconPath = os ? "images/" + os.toLowerCase() + ".png" : "images/linux.png";
         const sandboxCard = document.createElement('div');
         sandboxCard.classList.add('sandbox-card');
         sandboxCard.style.position = 'relative';
@@ -191,7 +191,6 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
             });
           } else if (action === 'shell') {
             // Open permanent SSH terminal for the sandbox.
-            // If you have a custom function to do so:
             openSandboxShell(name, path, username, serverPassword);
           } else {
             const res = await fetch('/api/controlSandbox', {
@@ -353,7 +352,6 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
 
   // =============================================
   // NEW: Permanent SSH terminal via WebSocket
-  // Updated to center in the screen using Flex
   // =============================================
   function createSSHConsolePopup() {
     // Create overlay for terminal popup
@@ -365,34 +363,27 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     overlay.style.height = '100%';
     overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
     overlay.style.zIndex = '9999';
-    // Use flex to center the popup
-    overlay.style.display = 'flex';
-    overlay.style.justifyContent = 'center';
-    overlay.style.alignItems = 'center';
-
+  
     // Create popup container (draggable and resizable)
     const popup = document.createElement('div');
-    // Add ID for easier media-query styling on small screens
-    popup.id = 'sshPopup';
-
-    // Instead of absolute top/left, we do a flexible size
-    popup.style.width = '80%';
+    popup.style.position = 'absolute';
+    popup.style.top = '10%';
+    popup.style.left = '30%';
+    popup.style.width = '60%';
     popup.style.height = '80%';
-    popup.style.maxWidth = '1200px';   // optional limit
-    popup.style.maxHeight = '800px';   // optional limit
     popup.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
     popup.style.borderRadius = '8px';
     popup.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
     popup.style.display = 'flex';
     popup.style.flexDirection = 'column';
     popup.style.padding = '10px';
-    popup.style.resize = 'both';
-    popup.style.overflow = 'auto';
-
+    popup.style.resize = "both";
+    popup.style.overflow = "auto";
+  
     const title = document.createElement('h3');
     title.textContent = 'Permanent SSH Terminal';
     popup.appendChild(title);
-
+    
     // Make the popup draggable using the title as the handle
     title.addEventListener('mousedown', dragMouseDown);
     function dragMouseDown(e) {
@@ -409,19 +400,15 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         let pos2 = pos4 - e.clientY;
         pos3 = e.clientX;
         pos4 = e.clientY;
-        // If user drags it, update the container's position
-        // You can keep "position: absolute" but since we're centering with flex,
-        // the user can drag it around within the overlay.
-        popup.style.position = 'absolute';
-        popup.style.top = (popup.offsetTop - pos2) + 'px';
-        popup.style.left = (popup.offsetLeft - pos1) + 'px';
+        popup.style.top = (popup.offsetTop - pos2) + "px";
+        popup.style.left = (popup.offsetLeft - pos1) + "px";
       }
       function closeDragElement() {
         document.onmouseup = null;
         document.onmousemove = null;
       }
     }
-
+  
     // Create container for the xterm.js terminal
     const terminalContainer = document.createElement('div');
     terminalContainer.style.flex = '1';
@@ -429,25 +416,22 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
     terminalContainer.style.width = '100%';
     terminalContainer.style.height = '100%';
     popup.appendChild(terminalContainer);
-
+  
     // (Optional) Input field for sending commands
     const inputWrapper = document.createElement('div');
     inputWrapper.style.display = 'flex';
     inputWrapper.style.marginTop = '10px';
-
     const cmdInput = document.createElement('input');
     cmdInput.type = 'text';
     cmdInput.placeholder = 'Type your command...';
     cmdInput.style.flex = '1';
-
     const sendBtn = document.createElement('button');
     sendBtn.textContent = 'Send';
     sendBtn.style.marginLeft = '5px';
-
     inputWrapper.appendChild(cmdInput);
     inputWrapper.appendChild(sendBtn);
     popup.appendChild(inputWrapper);
-
+  
     const closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
     closeBtn.style.marginTop = '10px';
@@ -456,111 +440,98 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       document.body.removeChild(overlay);
     });
     popup.appendChild(closeBtn);
-
+  
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
-
+  
     // Establish WebSocket connection for permanent SSH
     const wsUrl = `ws://${location.hostname}:${location.port}/ws/permanentSsh?username=${encodeURIComponent(username)}`;
     const ws = new WebSocket(wsUrl);
-
+  
     // ===== Begin xterm.js integration with FitAddon =====
-    // Initialize the xterm.js terminal
-    const term = new Terminal({
-      convertEol: false, // Keep newline conversion off for interactive apps
-      scrollback: 1000,
-      cursorBlink: true,
-      theme: { background: '#1e1e1e', foreground: '#cccccc' }
-    });
-    term.open(terminalContainer);
+    // Initialize the xterm.js terminal with convertEol disabled
+const term = new Terminal({
+  convertEol: false,   // Disable newline conversion for interactive apps
+  scrollback: 1000,
+  cursorBlink: true,
+  theme: { background: '#1e1e1e', foreground: '#cccccc' }
+});
+term.open(terminalContainer);
 
-    // Load the FitAddon
-    const fitAddon = new FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
-    fitAddon.fit();
+// Initialize and apply the FitAddon immediately
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+fitAddon.fit();
 
-    // Immediately send the terminal size to the server
-    const initialResizeMsg = {
-      type: 'resize',
-      cols: term.cols,
-      rows: term.rows,
-    };
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(initialResizeMsg));
-    }
+// Send the current dimensions to the server immediately after fitting
+const initialResize = JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows });
+if (ws && ws.readyState === WebSocket.OPEN) {
+  ws.send(initialResize);
+}
 
-    // Listen for window resize events to re-fit the terminal
-    window.addEventListener('resize', () => {
-      fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: term.cols,
-            rows: term.rows,
-          })
-        );
-      }
-    });
+// Listen for window resize events
+window.addEventListener('resize', () => {
+  fitAddon.fit();
+  const cols = term.cols;
+  const rows = term.rows;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+  }
+});
 
-    // Send keystrokes to the server
+  
+    // Let xterm.js capture keystrokes and send to server
     term.onData(data => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN) {
         ws.send(data);
       }
     });
-
-    // Handle incoming data from server
+  
+    // Setup WebSocket message handler to write data to the terminal
     ws.onopen = () => {
       term.write('\r\n[Connected to permanent SSH session]\r\n');
-      // Example usage if you want to auto-sudo:
-      ws.send("stty erase '^?'\r");
-      if (serverPassword) {
-        ws.send(`echo ${serverPassword} | sudo -S -p '' /bin/bash -i\r`);
-      }
+      ws.send("stty erase '^?'\n");
+      ws.send(`echo ${serverpass} | sudo -S -p '' /bin/bash -i\n`);
     };
-
-    ws.onmessage = evt => {
+    ws.onmessage = (evt) => {
       term.write(evt.data);
     };
-
     ws.onclose = () => {
       term.write('\r\n[SSH session closed]\r\n');
     };
-
-    ws.onerror = err => {
+    ws.onerror = (err) => {
       term.write(`\r\n[WebSocket error: ${err}]\r\n`);
     };
-    // ===== End xterm.js integration with FitAddon =====
-
-    // Send commands typed into the input box
-    function sendCommand() {
-      const cmd = cmdInput.value + '\r';
-      cmdInput.value = '';
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(cmd);
-      } else {
-        term.write('\r\n[Error: WebSocket not open]\r\n');
-      }
-    }
-    cmdInput.addEventListener('keydown', e => {
+  
+    // Additionally, allow sending commands via the input field
+    cmdInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         sendCommand();
       }
     });
     sendBtn.addEventListener('click', sendCommand);
+    function sendCommand() {
+      const cmd = cmdInput.value + '\r\n';
+      cmdInput.value = '';
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(cmd);
+      } else {
+        term.write('\r\n[Error: WebSocket not open]\r\n');
+      }
+    }
+    // ===== End xterm.js integration with FitAddon =====
   }
-
-  // ====Create Jails script====
-  document.addEventListener('DOMContentLoaded', function () {
-    const pathsList = document.getElementById('paths-list');
+  
+  // ====Create Jails script========
+  document.addEventListener("DOMContentLoaded", function () {
+    const pathsList = document.getElementById("paths-list");
     if (!pathsList) {
-      console.error('Error: pathsList element not found.');
+      console.error("Error: pathsList element not found.");
       return;
     }
     function loadScript(src, callback) {
-      const script = document.createElement('script');
+      const script = document.createElement("script");
       script.src = src;
       script.onload = callback;
       script.onerror = function () {
@@ -568,45 +539,37 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       };
       document.body.appendChild(script);
     }
-    loadScript('jailData.js', function () {
-      loadScript('createJail.js', function () {
-        if (typeof openCreateJailPopup !== 'function') {
-          console.error('Error: openCreateJailPopup is not defined. Check createJail.js.');
+    loadScript("jailData.js", function () {
+      loadScript("createJail.js", function () {
+        if (typeof openCreateJailPopup !== "function") {
+          console.error("Error: openCreateJailPopup is not defined. Check createJail.js.");
           return;
         }
-        const createJailBtn = document.createElement('button');
-        createJailBtn.id = 'createJailBtn';
-        createJailBtn.textContent = 'Create Jail';
-        createJailBtn.classList.add('create-jail-button');
-        createJailBtn.addEventListener('click', openCreateJailPopup);
+        const createJailBtn = document.createElement("button");
+        createJailBtn.id = "createJailBtn";
+        createJailBtn.textContent = "Create Jail";
+        createJailBtn.classList.add("create-jail-button");
+        createJailBtn.addEventListener("click", openCreateJailPopup);
         pathsList.appendChild(createJailBtn);
       });
     });
   });
-
+  
   // Toggle left pane on small screens
-  document.getElementById('toggleLeftPane').addEventListener('click', function () {
+  document.getElementById('toggleLeftPane').addEventListener('click', function() {
     document.getElementById('left-pane').classList.toggle('open');
   });
-
+  
   // OPTIONAL: Enable swipe gestures to open/close the left pane
   let touchStartX = 0;
   let touchEndX = 0;
-  document.addEventListener(
-    'touchstart',
-    function (e) {
-      touchStartX = e.changedTouches[0].screenX;
-    },
-    false
-  );
-  document.addEventListener(
-    'touchend',
-    function (e) {
-      touchEndX = e.changedTouches[0].screenX;
-      handleSwipe();
-    },
-    false
-  );
+  document.addEventListener('touchstart', function(e) {
+    touchStartX = e.changedTouches[0].screenX;
+  }, false);
+  document.addEventListener('touchend', function(e) {
+    touchEndX = e.changedTouches[0].screenX;
+    handleSwipe();
+  }, false);
   function handleSwipe() {
     if (touchEndX > touchStartX + 50) {
       document.getElementById('left-pane').classList.add('open');
@@ -615,20 +578,18 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       document.getElementById('left-pane').classList.remove('open');
     }
   }
-
+  
   // Settings popup draggable
-  document.addEventListener('DOMContentLoaded', function () {
-    const settingsPopup = document.getElementById('settingsPopup');
+  document.addEventListener("DOMContentLoaded", function() {
+    const settingsPopup = document.getElementById("settingsPopup");
     if (!settingsPopup) return;
-    settingsPopup.style.resize = 'both';
-    settingsPopup.style.overflow = 'auto';
-
-    const settingsHeader = settingsPopup.querySelector('h2');
+    settingsPopup.style.resize = "both";
+    settingsPopup.style.overflow = "auto";
+    const settingsHeader = settingsPopup.querySelector("h2");
     if (settingsHeader) {
-      settingsHeader.style.cursor = 'move';
-      settingsHeader.addEventListener('mousedown', dragSettingsPopup);
+      settingsHeader.style.cursor = "move";
+      settingsHeader.addEventListener("mousedown", dragSettingsPopup);
     }
-
     function dragSettingsPopup(e) {
       e = e || window.event;
       e.preventDefault();
@@ -636,7 +597,6 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       let pos4 = e.clientY;
       document.onmouseup = closeDragElement;
       document.onmousemove = elementDrag;
-
       function elementDrag(e) {
         e = e || window.event;
         e.preventDefault();
@@ -644,8 +604,8 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
         let pos2 = pos4 - e.clientY;
         pos3 = e.clientX;
         pos4 = e.clientY;
-        settingsPopup.style.top = settingsPopup.offsetTop - pos2 + 'px';
-        settingsPopup.style.left = settingsPopup.offsetLeft - pos1 + 'px';
+        settingsPopup.style.top = (settingsPopup.offsetTop - pos2) + "px";
+        settingsPopup.style.left = (settingsPopup.offsetLeft - pos1) + "px";
       }
       function closeDragElement() {
         document.onmouseup = null;
@@ -653,7 +613,7 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
       }
     }
   });
-
+  
   // Fetch sandboxes on load
   fetchSandboxes();
 }
