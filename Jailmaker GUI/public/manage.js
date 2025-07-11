@@ -23,70 +23,145 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
   let allPaths = [];
   let serverPassword = null;
 
-  // 1) Fetch sandboxes
-  async function fetchSandboxes() {
-    sandboxesContainer.textContent = 'Loading sandboxes...';
-    try {
-      const res = await fetch(`/api/getSandboxes?username=${encodeURIComponent(username)}`);
-      const data = await res.json();
-      if (data.success) {
-        sandboxesContainer.innerHTML = '';
-        pathsList.innerHTML = '';
+// ───────────────────────────────────────────────────────────
+// Keep track of which path the user has chosen (null = Show All)
+// ───────────────────────────────────────────────────────────
+let selectedPath = null;
 
-        const userDetails = data.details || {};
-        serverPassword = userDetails.serverpass || null;
+// Hook “Show All” button once, up at the top of your file
+showAllBtn.addEventListener('click', () => {
+  selectedPath = null;
+  // clear any .active in the left pane
+  document
+    .querySelectorAll('#paths-list .path-box')
+    .forEach((b) => b.classList.remove('active'));
+  // highlight the Show All button if you want:
+  showAllBtn.classList.add('active');
+  displaySandboxes(allSandboxes);
+});
 
-        allSandboxes = data.sandboxes;
-        allPaths = [...new Set(allSandboxes.map((s) => s.path))];
 
-        // Left pane: create path boxes
-        allPaths.forEach((path, index) => {
-          const pathBox = document.createElement('div');
-          pathBox.classList.add('path-box');
-          pathBox.textContent = `Path: ${path}`;
-          if (index === 0) pathBox.classList.add('active');
-          pathBox.dataset.path = path;
-          pathBox.addEventListener('click', () => filterSandboxes(path, pathBox));
-          pathsList.appendChild(pathBox);
-        });
+// ───────────────────────────────────────────────────────────
+// 1) Fetch sandboxes & rebuild both panes, restoring choice
+// ───────────────────────────────────────────────────────────
+async function fetchSandboxes() {
+  sandboxesContainer.textContent = 'Loading sandboxes…';
 
-        // ADD "CREATE JAIL" BUTTON HERE
-        const createJailBtn = document.createElement("div");
-        createJailBtn.classList.add("path-box");
-        createJailBtn.textContent = "Create Jail";
-        createJailBtn.style.backgroundColor = "#007bff";
-        createJailBtn.style.color = "white";
-        createJailBtn.style.fontWeight = "bold";
-        createJailBtn.style.marginTop = "10px";
-        createJailBtn.style.cursor = "pointer";
-        createJailBtn.addEventListener("click", openCreateJailPopup);
-        pathsList.appendChild(createJailBtn);
-
-        // Connect SSH button
-        const sshConnectBtn = document.createElement('div');
-        sshConnectBtn.classList.add('path-box');
-        sshConnectBtn.textContent = 'Connect SSH';
-        sshConnectBtn.style.backgroundColor = 'green';
-        sshConnectBtn.style.color = 'white';
-        sshConnectBtn.style.fontWeight = 'bold';
-        sshConnectBtn.style.marginTop = '10px';
-        sshConnectBtn.style.cursor = 'pointer';
-        sshConnectBtn.addEventListener('click', createSSHConsolePopup);
-        pathsList.appendChild(sshConnectBtn);
-
-        displaySandboxes(allSandboxes);
-      } else {
-        sandboxesContainer.textContent = 'Error: ' + data.message;
-      }
-    } catch (err) {
-      sandboxesContainer.textContent = 'Error loading sandboxes: ' + err.toString();
+  try {
+    const res = await fetch(
+      `/api/getSandboxes?username=${encodeURIComponent(username)}`
+    );
+    const data = await res.json();
+    if (!data.success) {
+      sandboxesContainer.textContent = 'Error: ' + data.message;
+      return;
     }
-  }
 
-  async function refreshSandboxes() {
-    await fetchSandboxes();
+    // 1a) clear right pane & remember the old selection
+    sandboxesContainer.innerHTML = '';
+    const oldChoice = selectedPath;  // either a path string or null
+    pathsList.innerHTML = '';
+
+    // 1b) ingest new data
+    serverPassword = (data.details || {}).serverpass || null;
+    allSandboxes = data.sandboxes;
+
+    // 1c) global A→Z sort by the first token of output
+    allSandboxes.sort((a, b) => {
+      const aN = (a.output.split(/\s+/)[0] || '').toLowerCase();
+      const bN = (b.output.split(/\s+/)[0] || '').toLowerCase();
+      return aN.localeCompare(bN);
+    });
+
+    // 1d) rebuild left pane: one .path-box per unique path
+    allPaths = [...new Set(allSandboxes.map((s) => s.path))];
+    allPaths.forEach((path, idx) => {
+      const box = document.createElement('div');
+      box.classList.add('path-box');
+      box.textContent = `Path: ${path}`;
+      box.dataset.path = path;
+
+      // when user clicks this box:
+      box.addEventListener('click', () => {
+        selectedPath = path;
+        showAllBtn.classList.remove('active');
+        // highlight only this one
+        document
+          .querySelectorAll('#paths-list .path-box')
+          .forEach((b) => b.classList.remove('active'));
+        box.classList.add('active');
+        filterSandboxes(path, box);
+      });
+
+      pathsList.appendChild(box);
+    });
+
+    // 1e) “Create Jail” button
+    const createBtn = document.createElement('div');
+    createBtn.classList.add('path-box');
+    createBtn.textContent = 'Create Jail';
+    Object.assign(createBtn.style, {
+      backgroundColor: '#007bff',
+      color: 'white',
+      fontWeight: 'bold',
+      marginTop: '10px',
+      cursor: 'pointer',
+    });
+    createBtn.addEventListener('click', openCreateJailPopup);
+    pathsList.appendChild(createBtn);
+
+    // 1f) “Connect SSH” button
+    const sshBtn = document.createElement('div');
+    sshBtn.classList.add('path-box');
+    sshBtn.textContent = 'Connect SSH';
+    Object.assign(sshBtn.style, {
+      backgroundColor: 'green',
+      color: 'white',
+      fontWeight: 'bold',
+      marginTop: '10px',
+      cursor: 'pointer',
+    });
+    sshBtn.addEventListener('click', createSSHConsolePopup);
+    pathsList.appendChild(sshBtn);
+
+    // 1g) restore the user’s choice (or default to Show All)
+    if (oldChoice) {
+      // try to re-select that path-box
+      const re = [
+        ...pathsList.querySelectorAll('.path-box'),
+      ].find((b) => b.dataset.path === oldChoice);
+      if (re) {
+        re.classList.add('active');
+        filterSandboxes(oldChoice, re);
+      } else {
+        // if path vanished, fall back to show all
+        selectedPath = null;
+        showAllBtn.classList.add('active');
+        displaySandboxes(allSandboxes);
+      }
+    } else {
+      // no specific path chosen → show all
+      showAllBtn.classList.add('active');
+      displaySandboxes(allSandboxes);
+    }
+  } catch (err) {
+    sandboxesContainer.textContent =
+      'Error loading sandboxes: ' + err.toString();
   }
-  window.refreshSandboxes = refreshSandboxes;
+}
+
+
+// ───────────────────────────────────────────────────────────
+// 2) Refresh without losing scroll position (selection is in selectedPath)
+// ───────────────────────────────────────────────────────────
+async function refreshSandboxes() {
+  const scrollPos = sandboxesContainer.scrollTop;
+  await fetchSandboxes();
+  sandboxesContainer.scrollTop = scrollPos;
+}
+window.refreshSandboxes = refreshSandboxes;
+
+
 
   function cleanOutputLine(line) {
     const cleanedLine = line
@@ -127,38 +202,70 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
   }
 
   function displaySandboxes(sandboxes) {
-    sandboxesContainer.innerHTML = '';
-    sandboxes.forEach((sandbox) => {
-      const outputLines = sandbox.output.split('\n').map(cleanOutputLine).filter(Boolean);
-      outputLines.forEach((line) => {
+  sandboxesContainer.innerHTML = '';
+
+  // 1) Build a flat list of {name, running, …, path} objects
+  const jailList = [];
+  sandboxes.forEach((sbox) => {
+    sbox.output
+      .split('\n')
+      .map(cleanOutputLine)
+      .filter(Boolean)
+      .forEach((line) => {
         const parts = line.split(/\s+/);
         if (parts.length < 7) return;
-        const [name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses] = parts;
-        const iconPath = os ? "images/" + os.toLowerCase() + ".png" : "images/linux.png";
-        const sandboxCard = document.createElement('div');
-        sandboxCard.classList.add('sandbox-card');
-        sandboxCard.style.position = 'relative';
-        sandboxCard.style.paddingRight = '60px';
-        sandboxCard.innerHTML = `
-          <h4>${name} (${os} ${version})</h4>
-          <p><strong>IP:</strong> ${addresses.join(' ') || 'N/A'}</p>
-          <p>
-            <strong>Running:</strong> ${running || 'N/A'}, 
-            <strong>Startup:</strong> ${startup || 'N/A'}, 
-            <strong>GPU_Intel:</strong> ${gpuIntel || 'N/A'}, 
-            <strong>GPU_Nvidia:</strong> ${gpuNvidia || 'N/A'}
-          </p>
-          <div class="sandbox-controls">
-            <button class="control-btn" data-action="start" data-name="${name}" data-path="${sandbox.path}">Start</button>
-            <button class="control-btn" data-action="stop" data-name="${name}" data-path="${sandbox.path}">Stop</button>
-            <button class="control-btn" data-action="restart" data-name="${name}" data-path="${sandbox.path}">Restart</button>
-            <button class="control-btn" data-action="remove" data-name="${name}" data-path="${sandbox.path}">Remove</button>
-          </div>
-          <img src="${iconPath}" onerror="this.onerror=null; this.src='images/linux.png'" class="os-icon" alt="${os ? os : 'Linux'} Icon" />
-        `;
-        sandboxesContainer.appendChild(sandboxCard);
+        const [ name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses ] = parts;
+        jailList.push({
+          name,
+          running,
+          startup,
+          gpuIntel,
+          gpuNvidia,
+          os,
+          version,
+          addresses,
+          path: sbox.path
+        });
       });
-    });
+  });
+
+  // 2) Sort the flat list by name (case-insensitive)
+  jailList.sort((a, b) =>
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+  );
+
+  // 3) Render each jail in order
+  jailList.forEach((jail) => {
+    const { name, running, startup, gpuIntel, gpuNvidia, os, version, addresses, path } = jail;
+    const sandboxCard = document.createElement('div');
+    sandboxCard.classList.add('sandbox-card');
+    sandboxCard.classList.add(
+      running && running.toLowerCase() === 'true' ? 'running' : 'stopped'
+    );
+    sandboxCard.style.position = 'relative';
+    sandboxCard.style.paddingRight = '60px';
+    sandboxCard.innerHTML = `
+      <h4>${name} (${os} ${version})</h4>
+      <p><strong>IP:</strong> ${addresses.join(' ') || 'N/A'}</p>
+      <p>
+        <strong>Running:</strong> ${running || 'N/A'}, 
+        <strong>Startup:</strong> ${startup || 'N/A'}, 
+        <strong>GPU_Intel:</strong> ${gpuIntel || 'N/A'}, 
+        <strong>GPU_Nvidia:</strong> ${gpuNvidia || 'N/A'}
+      </p>
+      <div class="sandbox-controls">
+        <button class="control-btn" data-action="start"   data-name="${name}" data-path="${path}">Start</button>
+        <button class="control-btn" data-action="stop"    data-name="${name}" data-path="${path}">Stop</button>
+        <button class="control-btn" data-action="restart" data-name="${name}" data-path="${path}">Restart</button>
+        <button class="control-btn" data-action="remove"  data-name="${name}" data-path="${path}">Remove</button>
+      </div>
+      <img src="images/${os.toLowerCase()}.png"
+           onerror="this.onerror=null;this.src='images/linux.png'"
+           class="os-icon" alt="${os} icon" />
+    `;
+    sandboxesContainer.appendChild(sandboxCard);
+  });
+
     const controlButtons = document.querySelectorAll('.control-btn');
     controlButtons.forEach((button) => {
       button.addEventListener('click', async () => {
@@ -217,16 +324,17 @@ if (sandboxesContainer && pathsList && showAllBtn && settingsBtn && settingsPopu
   }
 
   function filterSandboxes(path, activeElement) {
-    Array.from(pathsList.children).forEach((item) => item.classList.remove('active'));
-    activeElement.classList.add('active');
-    const filtered = allSandboxes.filter((s) => s.path === path);
-    displaySandboxes(filtered);
-  }
+  Array.from(pathsList.children).forEach((item) => item.classList.remove('active'));
+  activeElement.classList.add('active');
+  // this pulls a slice of the already‐sorted array
+  const filtered = allSandboxes.filter((s) => s.path === path);
+  displaySandboxes(filtered);
+}
 
   showAllBtn.addEventListener('click', () => {
-    Array.from(pathsList.children).forEach((item) => item.classList.remove('active'));
-    displaySandboxes(allSandboxes);
-  });
+  Array.from(pathsList.children).forEach((item) => item.classList.remove('active'));
+  displaySandboxes(allSandboxes);
+});
 
   // Settings popup
   settingsBtn.addEventListener('click', async () => {
