@@ -2,38 +2,38 @@
 <html>
 <head>
   <title>Login or Register - Jailmaker Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <link rel="icon" href="/favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  
   <div class="container">
-    
     <div class="page-header">
       <img src="truenas.png" alt="App Icon" class="app-icon-left">
     </div>    
 
     <h1>Welcome to Jailmaker Manager</h1>
+
     <form id="loginForm">
       <h2>Log In</h2>
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required>
+      <label for="username">Username</label>
+      <input id="username" name="username" required>
 
-      <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required>
 
       <button type="submit">Log In</button>
     </form>
 
-    <h2>Or</h2>
+    <h2 style="text-align:center;">Or</h2>
 
     <form id="registerForm">
       <h2>Create New User</h2>
-      <label for="newUsername">Username:</label>
-      <input type="text" id="newUsername" name="newUsername" required>
+      <label for="newUsername">Username</label>
+      <input id="newUsername" name="newUsername" required>
 
-      <label for="newPassword">Password:</label>
-      <input type="password" id="newPassword" name="newPassword" required>
+      <label for="newPassword">Password</label>
+      <input id="newPassword" name="newPassword" type="password" required>
 
       <button type="submit">Register</button>
     </form>
@@ -41,71 +41,7 @@
     <div id="response"></div>
   </div>
 
-  <script>
-    const loginForm = document.getElementById('loginForm');
-    const registerForm = document.getElementById('registerForm');
-    const responseBox = document.getElementById('response');
-
-    // Log In
-    loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-
-      responseBox.textContent = 'Logging in...';
-
-      try {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-
-        const data = await res.json();
-        if (data.success) {
-          localStorage.setItem('username', username);
-          responseBox.textContent = 'Login successful! Redirecting...';
-          setTimeout(() => {
-            window.location.href = '/manage.html'; // Redirect to Page 4
-          }, 1000);
-        } else {
-          responseBox.textContent = 'Error: ' + data.message;
-        }
-      } catch (err) {
-        responseBox.textContent = 'Error: ' + err.toString();
-      }
-    });
-
-    // Create New User
-    registerForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('newUsername').value;
-      const password = document.getElementById('newPassword').value;
-
-      responseBox.textContent = 'Creating user...';
-
-      try {
-        const res = await fetch('/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-
-        const data = await res.json();
-        if (data.success) {
-          localStorage.setItem('username', username);
-          responseBox.textContent = 'User created! Redirecting...';
-          setTimeout(() => {
-            window.location.href = '/serverdetails.html'; // Redirect to Page 2
-          }, 1000);
-        } else {
-          responseBox.textContent = 'Error: ' + data.message;
-        }
-      } catch (err) {
-        responseBox.textContent = 'Error: ' + err.toString();
-      }
-    });
-  </script>
+  <script src="scripts.js"></script>
 </body>
 </html>
 
