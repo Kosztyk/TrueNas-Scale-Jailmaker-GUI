@@ -462,6 +462,45 @@ app.post('/api/runSSHCommandStream', async (req, res) => {
   }
 });
 
+// POST /api/saveUserDetails
+// Body: { username, serverIp, serverPort, serverUser, serverPassword, paths: [] }
+app.post('/api/saveUserDetails', async (req, res) => {
+  try {
+    const { username, serverIp, serverPort, serverUser, serverPassword, paths } = req.body || {};
+    if (!username) return res.json({ success: false, message: 'Username is required.' });
+
+    // find user id
+    const u = await pool.query(`SELECT id FROM users WHERE username=$1`, [username]);
+    const userId = u.rows[0]?.id;
+    if (!userId) return res.json({ success: false, message: 'User not found.' });
+
+    // update details (only if values provided)
+    const toSet = {};
+    if (serverIp !== undefined) toSet.serverip = serverIp;
+    if (serverPort !== undefined) toSet.serverport = Number(serverPort) || null;
+    if (serverUser !== undefined) toSet.serveruser = serverUser;
+    if (serverPassword !== undefined) toSet.serverpass = serverPassword;
+    if (paths !== undefined) toSet.paths = JSON.stringify(Array.isArray(paths) ? paths : []);
+
+    const keys = Object.keys(toSet);
+    if (!keys.length) {
+      return res.json({ success: false, message: 'No fields to update.' });
+    }
+
+    const sets = keys.map((k, i) => `${k}=$${i+1}`).join(', ');
+    const values = keys.map(k => toSet[k]);
+    values.push(userId);
+
+    await pool.query(`UPDATE details SET ${sets} WHERE user_id=$${values.length}`, values);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[saveUserDetails]', err);
+    res.json({ success: false, message: String(err?.message || err) });
+  }
+});
+
+
 /* -----------------------------
    Disconnect SSH (if pooled)
 ----------------------------- */
