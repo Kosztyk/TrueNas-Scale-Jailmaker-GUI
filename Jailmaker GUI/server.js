@@ -1,38 +1,48 @@
 /****************************************************
- * server.js
+ * server.js  —  Jailmaker GUI Backend (Full)
  *
  * Node/Express + PostgreSQL + ssh2 + WebSocket (ws)
  *
- * - Register/Login
- * - Store user/server details in DB
- * - Start/Stop/Restart/Remove sandbox
- * - Ephemeral route => /api/runSSHCommand
- * - NEW: /ws/permanentSsh => permanent shell session
+ * Features:
+ * - Register / Login
+ * - Store & fetch user/server details (PostgreSQL)
+ * - Distros/Releases file endpoints
+ * - List sandboxes (jlmkr.py list on each path)
+ * - Control actions: start/stop/restart/remove
+ *   - Legacy REST: /api/controlSandbox  (REMOVE fixed: pipes name)
+ *   - Streaming: /api/controlSandboxStream + WS /ws/actionLogs (REMOVE fixed: pipes name)
+ * - Run arbitrary SSH command
+ *   - Legacy REST: /api/runSSHCommand
+ *   - Streaming: /api/runSSHCommandStream + WS /ws/actionLogs
+ * - Permanent SSH shell over WebSocket: /ws/permanentSsh
+ * - Optional Jail Shell over WebSocket: /ws/jailShell
  ****************************************************/
 
 const express = require('express');
-const http = require('http');       // For creating an HTTP server
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
-const { Client } = require('ssh2');
-const WebSocket = require('ws');    // For permanent SSH
-const fs = require("fs");
-const path = require("path");
+const { Client: SSHClient } = require('ssh2');
+const WebSocket = require('ws');
+const { EventEmitter } = require('events');
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// PostgreSQL connection pool
+/* -----------------------------
+   PostgreSQL connection
+----------------------------- */
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
+  port: Number(process.env.DB_PORT || 5432),
   user: process.env.DB_USER || 'jailmaker',
   password: process.env.DB_PASS || 'somepassword',
   database: process.env.DB_NAME || 'jailmakerdb',
 });
 
-// Initialize database
 (async function initDB() {
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
@@ -55,620 +65,575 @@ const pool = new Pool({
   try {
     await pool.query(createUsersTable);
     await pool.query(createDetailsTable);
-    console.log('Database initialized.');
+    console.log('[DB] Initialized.');
   } catch (err) {
-    console.error('Error initializing database:', err);
+    console.error('[DB] Init error:', err);
     process.exit(1);
   }
 })();
 
-// Custom routes first:
-app.get("/distros", (req, res) => {
-  const filePath = path.join(__dirname, "public", "distros", "distros");
-  fs.readFile(filePath, "utf8", (err, data) => {
-      if (err) {
-          console.error("Error reading distro file:", err);
-          return res.status(500).json({ error: "Failed to load distros" });
-      }
-      const distroArray = data.split("\n").map(d => d.trim()).filter(Boolean);
-      res.json(distroArray);
-  });
-});
+/* -----------------------------
+   Helpers (DB + SSH)
+----------------------------- */
+async function getServerDetailsFor(username) {
+  const q = `
+    SELECT d.serverip, d.serverport, d.serveruser, d.serverpass
+    FROM details d
+    INNER JOIN users u ON d.user_id = u.id
+    WHERE u.username = $1
+  `;
+  const r = await pool.query(q, [username]);
+  return r.rows[0];
+}
 
-app.get("/releases/:distro", (req, res) => {
-  const distro = req.params.distro.toLowerCase();
-  const filePath = path.join(__dirname, "public", "distros", distro);
-  fs.readFile(filePath, "utf8", (err, data) => {
-      if (err) {
-          console.error("Error reading releases file:", err);
-          return res.status(404).json({ error: `No releases found for ${distro}` });
-      }
-      const releases = data.split("\n").map(r => r.trim()).filter(Boolean);
-      res.json(releases);
-  });
-});
+/** Run a command over SSH and STREAM stdout/stderr to an EventEmitter.
+ *  Emits: 'data' (chunk), 'error' (err), 'done'(success:boolean)
+ */
+async function runSSHStreaming(username, command, emitter) {
+  const details = await getServerDetailsFor(username);
+  if (!details) throw new Error('User details not found for SSH.');
+  const { serverip, serverport, serveruser, serverpass } = details;
 
-// Serve static files
+  return new Promise((resolve, reject) => {
+    const conn = new SSHClient();
+
+    conn
+      .on('ready', () => {
+        // sudo + bash -lc with proper quoting
+        const su = `echo ${serverpass} | sudo -S -p '' /usr/bin/bash -lc ${JSON.stringify(command)}`;
+        conn.exec(su, { pty: true }, (err, stream) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+          stream.on('close', (code) => {
+            conn.end();
+            resolve(code);
+          });
+          stream.on('data', (d) => emitter.emit('data', d.toString()));
+          stream.stderr.on('data', (d) => emitter.emit('data', d.toString()));
+        });
+      })
+      .on('keyboard-interactive', (name, instr, lang, prompts, finish) => finish([serverpass]))
+      .on('error', (err) => {
+        emitter.emit('error', err);
+        reject(err);
+      })
+      .connect({
+        host: serverip,
+        port: Number(serverport) || 22,
+        username: serveruser,
+        password: serverpass,
+        tryKeyboard: true,
+      });
+  });
+}
+
+/** Convenience: simple (non-streaming) command exec returning output */
+async function runSSHEphemeral(username, command) {
+  const details = await getServerDetailsFor(username);
+  if (!details) throw new Error('User details not found for SSH.');
+  const { serverip, serverport, serveruser, serverpass } = details;
+
+  return new Promise((resolve, reject) => {
+    const conn = new SSHClient();
+    conn
+      .on('ready', () => {
+        const su = `echo ${serverpass} | sudo -S -p '' /usr/bin/bash -lc ${JSON.stringify(command)}`;
+        conn.exec(su, (err, stream) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+          let out = '';
+          let errOut = '';
+          stream
+            .on('data', (d) => (out += d.toString()))
+            .stderr.on('data', (d) => (errOut += d.toString()))
+            .on('close', () => {
+              conn.end();
+              resolve((out + (errOut ? '\n' + errOut : '')).trim());
+            });
+        });
+      })
+      .on('error', reject)
+      .connect({
+        host: serverip,
+        port: Number(serverport) || 22,
+        username: serveruser,
+        password: serverpass,
+      });
+  });
+}
+
+/* -----------------------------
+   Static + distros/releases
+----------------------------- */
 app.use(express.static('public'));
 
-//---------------------------------------------------
-// Redirect to landing page
-//---------------------------------------------------
-app.get('/', (req, res) => {
-  res.redirect('/index.html');
+app.get('/', (req, res) => res.redirect('/index.html'));
+
+app.get('/distros', (req, res) => {
+  const filePath = path.join(__dirname, 'public', 'distros', 'distros');
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) return res.status(500).json({ error: 'Failed to load distros' });
+    res.json(data.split('\n').map((s) => s.trim()).filter(Boolean));
+  });
 });
 
-//---------------------------------------------------
-// Register
-//---------------------------------------------------
+app.get('/releases/:distro', (req, res) => {
+  const filePath = path.join(__dirname, 'public', 'distros', req.params.distro.toLowerCase());
+  fs.readFile(filePath, 'utf8', (err, data) => {
+    if (err) return res.status(404).json({ error: `No releases found for ${req.params.distro}` });
+    res.json(data.split('\n').map((s) => s.trim()).filter(Boolean));
+  });
+});
+
+/* -----------------------------
+   Auth + details + paths
+----------------------------- */
 app.post('/api/register', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.json({ success: false, message: 'Username and password are required.' });
-  }
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.json({ success: false, message: 'Username and password are required.' });
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const userQuery = `INSERT INTO users (username, passwordhash) VALUES ($1, $2) RETURNING id`;
-    const userResult = await pool.query(userQuery, [username, hashedPassword]);
-    const detailsQuery = `INSERT INTO details (user_id) VALUES ($1)`;
-    await pool.query(detailsQuery, [userResult.rows[0].id]);
-    return res.json({ success: true, message: 'User created successfully.' });
+    const hash = await bcrypt.hash(password, 10);
+    const u = await pool.query(`INSERT INTO users (username, passwordhash) VALUES ($1,$2) RETURNING id`, [username, hash]);
+    await pool.query(`INSERT INTO details (user_id) VALUES ($1)`, [u.rows[0].id]);
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error registering user:', err);
-    return res.json({ success: false, message: 'Error registering user.' });
+    console.error('[register]', err);
+    res.json({ success: false, message: 'Error registering user.' });
   }
 });
 
-//---------------------------------------------------
-// Login
-//---------------------------------------------------
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.json({ success: false, message: 'Username and password are required.' });
-  }
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.json({ success: false, message: 'Username and password are required.' });
   try {
-    const userQuery = `SELECT * FROM users WHERE username = $1`;
-    const userResult = await pool.query(userQuery, [username]);
-    const user = userResult.rows[0];
-    if (!user) {
-      return res.json({ success: false, message: 'Invalid username or password.' });
-    }
-    const passwordMatch = await bcrypt.compare(password, user.passwordhash);
-    if (!passwordMatch) {
-      return res.json({ success: false, message: 'Invalid username or password.' });
-    }
-    const detailsQuery = `SELECT serverip, serverport, serveruser, serverpass, paths FROM details WHERE user_id = $1`;
-    const detailsResult = await pool.query(detailsQuery, [user.id]);
-    return res.json({ success: true, details: detailsResult.rows[0] });
+    const r = await pool.query(`SELECT * FROM users WHERE username=$1`, [username]);
+    const user = r.rows[0];
+    if (!user) return res.json({ success: false, message: 'Invalid username or password.' });
+    const ok = await bcrypt.compare(password, user.passwordhash);
+    if (!ok) return res.json({ success: false, message: 'Invalid username or password.' });
+    const d = await pool.query(`SELECT serverip,serverport,serveruser,serverpass,paths FROM details WHERE user_id=$1`, [user.id]);
+    res.json({ success: true, details: d.rows[0] || null });
   } catch (err) {
-    console.error('Error during login:', err);
-    return res.json({ success: false, message: 'Error during login.' });
+    console.error('[login]', err);
+    res.json({ success: false, message: 'Error during login.' });
   }
 });
 
-//---------------------------------------------------
-// setServerDetails
-//---------------------------------------------------
 app.post('/api/setServerDetails', async (req, res) => {
-  const { username, serverIp, serverPort, serverUser, serverPassword } = req.body;
+  const { username, serverIp, serverPort, serverUser, serverPassword } = req.body || {};
   if (!username || !serverIp || !serverPort || !serverUser || !serverPassword) {
     return res.json({ success: false, message: 'All fields are required.' });
   }
   try {
-    const userResult = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
-    const userId = userResult.rows[0].id;
-    const updateQuery = `
-      UPDATE details
-      SET serverip = $1, serverport = $2, serveruser = $3, serverpass = $4
-      WHERE user_id = $5
-    `;
-    await pool.query(updateQuery, [serverIp, serverPort, serverUser, serverPassword, userId]);
-    return res.json({ success: true, message: 'Server details saved successfully.' });
+    const u = await pool.query(`SELECT id FROM users WHERE username=$1`, [username]);
+    const userId = u.rows[0]?.id;
+    if (!userId) return res.json({ success: false, message: 'User not found.' });
+    await pool.query(
+      `UPDATE details SET serverip=$1, serverport=$2, serveruser=$3, serverpass=$4 WHERE user_id=$5`,
+      [serverIp, serverPort, serverUser, serverPassword, userId]
+    );
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error saving server details:', err);
-    return res.json({ success: false, message: 'Error saving server details.' });
+    console.error('[setServerDetails]', err);
+    res.json({ success: false, message: 'Error saving server details.' });
   }
 });
 
-//---------------------------------------------------
-// setPaths
-//---------------------------------------------------
 app.post('/api/setPaths', async (req, res) => {
-  const { username, paths } = req.body;
-  if (!username || !paths || paths.length === 0) {
-    return res.json({ success: false, message: 'Username and paths are required.' });
-  }
+  const { username, paths } = req.body || {};
+  if (!username || !paths?.length) return res.json({ success: false, message: 'Username and paths are required.' });
   try {
-    const userResult = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
-    const userId = userResult.rows[0].id;
-    const pathsJson = JSON.stringify(paths);
-    const updateQuery = `UPDATE details SET paths = $1 WHERE user_id = $2`;
-    await pool.query(updateQuery, [pathsJson, userId]);
-    return res.json({ success: true, message: 'Paths saved successfully.' });
+    const u = await pool.query(`SELECT id FROM users WHERE username=$1`, [username]);
+    const userId = u.rows[0]?.id;
+    if (!userId) return res.json({ success: false, message: 'User not found.' });
+    await pool.query(`UPDATE details SET paths=$1 WHERE user_id=$2`, [JSON.stringify(paths), userId]);
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error saving paths:', err);
-    return res.json({ success: false, message: 'Error saving paths.' });
+    console.error('[setPaths]', err);
+    res.json({ success: false, message: 'Error saving paths.' });
   }
 });
 
-//---------------------------------------------------
-// getSandboxes
-//---------------------------------------------------
-app.get('/api/getSandboxes', async (req, res) => {
-  const { username } = req.query;
-  if (!username) {
-    return res.json({ success: false, message: 'Username is required.' });
-  }
-  try {
-    const userQuery = `
-      SELECT details.serverip, details.serverport, details.serveruser, details.serverpass, details.paths 
-      FROM details 
-      INNER JOIN users ON details.user_id = users.id 
-      WHERE users.username = $1
-    `;
-    const userResult = await pool.query(userQuery, [username]);
-    const userDetails = userResult.rows[0];
-    if (!userDetails) {
-      return res.json({ success: false, message: 'User not found or no details available.' });
-    }
-    const { serverip, serverport, serveruser, serverpass, paths } = userDetails;
-    const pathsArray = JSON.parse(paths || '[]');
-    if (pathsArray.length === 0) {
-      return res.json({ success: false, message: 'No paths configured for this user.' });
-    }
-    console.log('User details:', userDetails);
-    console.log('Paths to process:', pathsArray);
-    const sandboxResults = [];
-    const sshClient = new Client();
-    sshClient
-      .on('ready', () => {
-        console.log('SSH connection established for getSandboxes.');
-        let processedPaths = 0;
-        pathsArray.forEach((path) => {
-          const command = `sudo -S sh -c "cd ${path} && ./jlmkr.py list"`;
-          sshClient.exec(command, { pty: true }, (err, stream) => {
-            if (err) {
-              console.error(`Error executing command for path ${path}:`, err.message);
-              sandboxResults.push({ path, output: `Error: ${err.message}` });
-              if (++processedPaths === pathsArray.length) {
-                sshClient.end();
-                res.json({ success: true, sandboxes: sandboxResults, details: userDetails });
-              }
-              return;
-            }
-            let output = '';
-            stream
-              .on('data', (data) => { output += data.toString(); })
-              .on('stderr', (stderr) => { console.error(`Error for path ${path}:`, stderr.toString()); })
-              .on('close', () => {
-                sandboxResults.push({ path, output: output.trim() || 'No output available.' });
-                console.log(`Output for path ${path}:`, output);
-                if (++processedPaths === pathsArray.length) {
-                  sshClient.end();
-                  res.json({ success: true, sandboxes: sandboxResults, details: userDetails });
-                }
-              });
-            stream.write(`${serverpass}\n`);
-          });
-        });
-      })
-      .on('error', (err) => {
-        console.error('SSH connection error (getSandboxes):', err.message);
-        res.json({ success: false, message: `SSH connection error: ${err.message}` });
-      })
-      .connect({
-        host: serverip,
-        port: serverport,
-        username: serveruser,
-        password: serverpass,
-      });
-  } catch (err) {
-    console.error('Error fetching sandboxes:', err);
-    return res.json({ success: false, message: 'Error fetching sandboxes.' });
-  }
-});
-
-//---------------------------------------------------
-// getUserDetails
-//---------------------------------------------------
 app.get('/api/getUserDetails', async (req, res) => {
-  const { username } = req.query;
-  if (!username) {
-    return res.json({ success: false, message: 'Username is required.' });
-  }
+  const { username } = req.query || {};
+  if (!username) return res.json({ success: false, message: 'Username is required.' });
   try {
-    const userQuery = `
-      SELECT u.username, d.serverip, d.serverport, d.serveruser, d.serverpass, d.paths
-      FROM users u
-      INNER JOIN details d ON u.id = d.user_id
-      WHERE u.username = $1
-    `;
-    const userResult = await pool.query(userQuery, [username]);
-    const userDetails = userResult.rows[0];
-    if (!userDetails) {
-      return res.json({ success: false, message: 'User not found.' });
-    }
-    const paths = userDetails.paths ? JSON.parse(userDetails.paths) : [];
+    const r = await pool.query(
+      `SELECT u.username, d.serverip, d.serverport, d.serveruser, d.serverpass, d.paths
+       FROM users u INNER JOIN details d ON u.id=d.user_id WHERE u.username=$1`,
+      [username]
+    );
+    const d = r.rows[0];
+    if (!d) return res.json({ success: false, message: 'User not found.' });
     res.json({
       success: true,
       details: {
-        username: userDetails.username,
-        serverip: userDetails.serverip,
-        serverport: userDetails.serverport,
-        serveruser: userDetails.serveruser,
-        serverpass: userDetails.serverpass,
-        paths,
+        username: d.username,
+        serverip: d.serverip,
+        serverport: d.serverport,
+        serveruser: d.serveruser,
+        serverpass: d.serverpass,
+        paths: d.paths ? JSON.parse(d.paths) : [],
       },
     });
   } catch (err) {
-    console.error('Error fetching user details:', err);
+    console.error('[getUserDetails]', err);
     res.json({ success: false, message: 'Error fetching user details.' });
   }
 });
 
-//---------------------------------------------------
-// controlSandbox
-//---------------------------------------------------
+/* -----------------------------
+   Listing & control (legacy)
+----------------------------- */
+app.get('/api/getSandboxes', async (req, res) => {
+  const { username } = req.query || {};
+  if (!username) return res.json({ success: false, message: 'Username is required.' });
+  try {
+    const details = await pool.query(
+      `SELECT d.serverip, d.serverport, d.serveruser, d.serverpass, d.paths
+       FROM details d INNER JOIN users u ON d.user_id = u.id WHERE u.username=$1`,
+      [username]
+    );
+    const det = details.rows[0];
+    if (!det) return res.json({ success: false, message: 'User not found or no details.' });
+
+    const paths = det.paths ? JSON.parse(det.paths) : [];
+    if (!paths.length) return res.json({ success: false, message: 'No paths configured for this user.' });
+
+    const ssh = new SSHClient();
+    const results = [];
+    ssh
+      .on('ready', () => {
+        let done = 0;
+        paths.forEach((p) => {
+          const cmd = `sudo -S sh -c "cd ${p} && ./jlmkr.py list"`;
+          ssh.exec(cmd, { pty: true }, (err, stream) => {
+            if (err) {
+              results.push({ path: p, output: `Error: ${err.message}` });
+              if (++done === paths.length) {
+                ssh.end();
+                res.json({ success: true, sandboxes: results, details: det });
+              }
+              return;
+            }
+            let out = '';
+            stream
+              .on('data', (d) => (out += d.toString()))
+              .stderr.on('data', (d) => (out += d.toString()))
+              .on('close', () => {
+                results.push({ path: p, output: out.trim() || 'No output available.' });
+                if (++done === paths.length) {
+                  ssh.end();
+                  res.json({ success: true, sandboxes: results, details: det });
+                }
+              });
+            stream.write(`${det.serverpass}\n`);
+          });
+        });
+      })
+      .on('error', (e) => res.json({ success: false, message: `SSH connection error: ${e.message}` }))
+      .connect({
+        host: det.serverip,
+        port: det.serverport,
+        username: det.serveruser,
+        password: det.serverpass,
+      });
+  } catch (err) {
+    console.error('[getSandboxes]', err);
+    res.json({ success: false, message: 'Error fetching sandboxes.' });
+  }
+});
+
 app.post('/api/controlSandbox', async (req, res) => {
-  const { action, name, path, username } = req.body;
-  if (!action || !name || !path || !username) {
+  const { action, name, path: jailPath, username } = req.body || {};
+  if (!action || !name || !jailPath || !username) {
     return res.json({ success: false, message: 'Action, sandbox name, path, and username are required.' });
   }
   try {
-    const userQuery = `
-      SELECT details.serverip, details.serverport, details.serveruser, details.serverpass
-      FROM details
-      INNER JOIN users ON details.user_id = users.id
-      WHERE users.username = $1
-    `;
-    const userResult = await pool.query(userQuery, [username]);
-    const userDetails = userResult.rows[0];
-    if (!userDetails) {
-      return res.json({ success: false, message: 'User details not found.' });
+    // robust single-quote escaping for POSIX shell
+    const safeName = String(name).replace(/'/g, `'\"'\"'`);
+    const safePath = String(jailPath).replace(/'/g, `'\"'\"'`);
+    let cmd;
+
+    if (action === 'remove') {
+      // FIX: pipe the jail name to satisfy input() confirmation
+      cmd = `cd '${safePath}' && printf '%s\\n' '${safeName}' | ./jlmkr.py remove '${safeName}'`;
+    } else {
+      cmd = `cd '${safePath}' && ./jlmkr.py ${action} '${safeName}'`;
     }
-    const { serverip, serverport, serveruser, serverpass } = userDetails;
-    if (action !== 'remove') {
-      const sshClient = new Client();
-      sshClient
-        .on('ready', () => {
-          console.log(`SSH established for "${action}" on sandbox "${name}".`);
-          const command = `echo ${serverpass} | sudo -S -p '' sh -c "cd ${path} && ./jlmkr.py ${action} '${name}'"`;
-          sshClient.exec(command, (err, stream) => {
-            if (err) {
-              sshClient.end();
-              return res.json({ success: false, message: `Error executing command: ${err.message}` });
-            }
-            let output = '';
-            let errorOutput = '';
-            stream
-              .on('data', (data) => { output += data.toString(); })
-              .stderr.on('data', (data) => { errorOutput += data.toString(); })
-              .on('close', () => {
-                sshClient.end();
-                if (errorOutput && !errorOutput.includes('Running as unit:')) {
-                  console.error(`Error: ${errorOutput}`);
-                  return res.json({ success: false, message: errorOutput.trim() });
-                }
-                if (output.includes('Running as unit:') || errorOutput.includes('Running as unit:')) {
-                  console.log(`Action "${action}" executed successfully: ${output || errorOutput}`);
-                  return res.json({
-                    success: true,
-                    message: `Action "${action}" executed successfully.`,
-                    output: (output + errorOutput).trim(),
-                  });
-                }
-                console.log(`Command output: ${output}`);
-                return res.json({ success: true, output: output.trim() });
-              });
-          });
-        })
-        .on('error', (err) => {
-          console.error('SSH connection error:', err.message);
-          res.json({ success: false, message: `SSH connection error: ${err.message}` });
-        })
-        .connect({
-          host: serverip,
-          port: serverport,
-          username: serveruser,
-          password: serverpass,
-        });
-      return;
+
+    const out = await runSSHEphemeral(username, cmd);
+    res.json({ success: true, output: out });
+  } catch (err) {
+    console.error('[controlSandbox]', err);
+    res.json({ success: false, message: String(err?.message || err) });
+  }
+});
+
+app.post('/api/runSSHCommand', async (req, res) => {
+  const { username, command } = req.body || {};
+  if (!username || !command) return res.json({ success: false, message: 'Username and command are required.' });
+  try {
+    const out = await runSSHEphemeral(username, command);
+    res.json({ success: true, output: out });
+  } catch (err) {
+    console.error('[runSSHCommand]', err);
+    res.json({ success: false, message: String(err?.message || err) });
+  }
+});
+
+/* -----------------------------
+   NEW: Streaming APIs
+----------------------------- */
+const actionStreams = new Map(); // actionId => EventEmitter
+function getActionEmitter(actionId) {
+  let em = actionStreams.get(actionId);
+  if (!em) {
+    em = new EventEmitter();
+    actionStreams.set(actionId, em);
+  }
+  return em;
+}
+
+app.post('/api/controlSandboxStream', async (req, res) => {
+  const { action, name, path: jailPath, username, actionId } = req.body || {};
+  if (!action || !name || !jailPath || !username || !actionId) {
+    return res.json({ success: false, message: 'Missing parameters' });
+  }
+  const em = getActionEmitter(actionId);
+  try {
+    const safeName = String(name).replace(/'/g, `'\"'\"'`);
+    const safePath = String(jailPath).replace(/'/g, `'\"'\"'`);
+    let cmd;
+
+    if (action === 'remove') {
+      // FIX: pipe the jail name to satisfy input() confirmation
+      cmd = `cd '${safePath}' && printf '%s\\n' '${safeName}' | ./jlmkr.py remove '${safeName}'`;
+    } else {
+      cmd = `cd '${safePath}' && ./jlmkr.py ${action} '${safeName}'`;
     }
-    // Remove action using piped input:
-    console.log(`[REMOVE pipe] for sandbox "${name}"...`);
-    const sshClient = new Client();
-    sshClient
-      .on('ready', () => {
-        console.log(`[REMOVE pipe] SSH ready for sandbox "${name}".`);
-        const pipeline = `(echo "${serverpass}"; echo "${name}"; echo "")`;
-        const removeCmd = `
-${pipeline} | sudo -S -p '' sh -c "cd ${path} && ./jlmkr.py remove '${name}'"
-`;
-        console.log(`[REMOVE pipe] Command:\n${removeCmd}`);
-        sshClient.exec(removeCmd, { pty: true }, (err, stream) => {
-          if (err) {
-            sshClient.end();
-            return res.json({ success: false, message: `Error executing remove command: ${err.message}` });
-          }
-          let output = '';
-          let errorOutput = '';
-          stream.on('data', (data) => { output += data.toString(); })
-            .stderr.on('data', (data) => { errorOutput += data.toString(); })
-            .on('close', () => {
-              sshClient.end();
-              console.log(`[REMOVE pipe] Output for sandbox "${name}":\n${output}`);
-              return res.json({
-                success: true,
-                message: `Sandbox "${name}" remove command executed with piped lines.`,
-                output: (output + errorOutput).trim(),
-              });
-            });
-        });
+
+    runSSHStreaming(username, cmd, em)
+      .then((code) => {
+        em.emit('done', code === 0);
+        setTimeout(() => actionStreams.delete(actionId), 60 * 1000);
       })
-      .on('error', (err) => {
-        console.error('[REMOVE pipe] SSH error:', err.message);
-        res.json({ success: false, message: `SSH connection error: ${err.message}` });
-      })
-      .connect({
-        host: serverip,
-        port: serverport,
-        username: serveruser,
-        password: serverpass,
+      .catch((err) => {
+        em.emit('error', err);
+        em.emit('done', false);
+        setTimeout(() => actionStreams.delete(actionId), 60 * 1000);
       });
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error:', err.message);
-    return res.json({ success: false, message: `Error: ${err.message}` });
+    em.emit('error', err);
+    em.emit('done', false);
+    setTimeout(() => actionStreams.delete(actionId), 60 * 1000);
+    res.json({ success: false, message: String(err?.message || err) });
   }
 });
 
-//---------------------------------------------------
-// updateUserDetails
-//---------------------------------------------------
-app.post('/api/updateUserDetails', async (req, res) => {
-  const { username, newUsername, serverIp, serverPort, serverUser, serverPassword, paths } = req.body;
-  if (!username || !newUsername || !serverIp || !serverPort || !serverUser || !serverPassword) {
-    return res.status(400).json({ success: false, message: 'All fields are required.' });
+app.post('/api/runSSHCommandStream', async (req, res) => {
+  const { username, command, actionId } = req.body || {};
+  if (!username || !command || !actionId) {
+    return res.json({ success: false, message: 'Missing parameters' });
   }
+  const em = getActionEmitter(actionId);
   try {
-    const userQuery = `SELECT id FROM users WHERE username = $1`;
-    const userResult = await pool.query(userQuery, [username]);
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    const userId = userResult.rows[0].id;
-    const updateUserQuery = `UPDATE users SET username = $1 WHERE id = $2`;
-    await pool.query(updateUserQuery, [newUsername, userId]);
-    const updateDetailsQuery = `
-      UPDATE details
-      SET serverip = $1, serverport = $2, serveruser = $3, serverpass = $4, paths = $5
-      WHERE user_id = $6
-    `;
-    await pool.query(updateDetailsQuery, [
-      serverIp,
-      serverPort,
-      serverUser,
-      serverPassword,
-      JSON.stringify(paths),
-      userId,
-    ]);
-    res.json({ success: true, message: 'Details updated successfully.' });
+    runSSHStreaming(username, command, em)
+      .then((code) => {
+        em.emit('done', code === 0);
+        setTimeout(() => actionStreams.delete(actionId), 60 * 1000);
+      })
+      .catch((err) => {
+        em.emit('error', err);
+        em.emit('done', false);
+        setTimeout(() => actionStreams.delete(actionId), 60 * 1000);
+      });
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error updating user details:', err);
-    res.status(500).json({ success: false, message: 'Internal server error.' });
+    em.emit('error', err);
+    em.emit('done', false);
+    setTimeout(() => actionStreams.delete(actionId), 60 * 1000);
+    res.json({ success: false, message: String(err?.message || err) });
   }
 });
 
-//---------------------------------------------------
-// saveUserDetails
-//---------------------------------------------------
-app.post('/api/saveUserDetails', async (req, res) => {
-  const { username, serverIp, serverPort, serverUser, serverPassword, paths } = req.body;
-  if (!username || !serverIp || !serverPort || !serverUser || !serverPassword || !paths) {
-    return res.status(400).json({ success: false, message: 'All fields are required.' });
-  }
-  try {
-    const userQuery = 'SELECT id FROM users WHERE username = $1';
-    const userResult = await pool.query(userQuery, [username]);
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
-    const userId = userResult.rows[0].id;
-    const updateQuery = `
-      UPDATE details
-      SET serverip = $1, serverport = $2, serveruser = $3, serverpass = $4, paths = $5
-      WHERE user_id = $6
-    `;
-    await pool.query(updateQuery, [
-      serverIp,
-      serverPort,
-      serverUser,
-      serverPassword,
-      JSON.stringify(paths),
-      userId,
-    ]);
-    res.json({ success: true, message: 'Details saved successfully.' });
-  } catch (err) {
-    console.error('Error saving user details:', err);
-    res.status(500).json({ success: false, message: 'Error saving user details.' });
-  }
-});
-
-//---------------------------------------------------
-// disconnectSSH
-//---------------------------------------------------
+/* -----------------------------
+   Disconnect SSH (if pooled)
+----------------------------- */
 const activeSSHConnections = new Map();
-
 app.post('/api/disconnectSSH', async (req, res) => {
-  const { username } = req.body;
-  if (!username) {
-    return res.status(400).json({ success: false, message: 'Username is required.' });
-  }
+  const { username } = req.body || {};
+  if (!username) return res.status(400).json({ success: false, message: 'Username is required.' });
   try {
-    const sshClient = activeSSHConnections.get(username);
-    if (sshClient) {
-      sshClient.end();
+    const ssh = activeSSHConnections.get(username);
+    if (ssh) {
+      ssh.end();
       activeSSHConnections.delete(username);
-      console.log(`SSH connection closed for user: ${username}`);
     }
     res.json({ success: true, message: 'Logout successful. SSH connection closed.' });
   } catch (err) {
-    console.error('Error during SSH disconnect:', err.message);
     res.status(500).json({ success: false, message: 'Error during SSH disconnect.' });
   }
 });
 
-//---------------------------------------------------
-// HTTP server + WebSocket server
-//---------------------------------------------------
+/* -----------------------------
+   HTTP server + WebSockets
+----------------------------- */
 const server = http.createServer(app);
-const PORT = 8080;
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+const PORT = Number(process.env.PORT || 8080);
+server.listen(PORT, () => console.log(`HTTP listening on http://localhost:${PORT}`));
 
-//---------------------------------------------------
-// Ephemeral route => /api/runSSHCommand (unchanged)
-//---------------------------------------------------
-app.post('/api/runSSHCommand', async (req, res) => {
-  const { username, command } = req.body;
-  if (!username || !command) {
-    return res.json({ success: false, message: 'Username and command are required.' });
-  }
-  try {
-    const userQuery = `
-      SELECT d.serverip, d.serverport, d.serveruser, d.serverpass
-      FROM details d
-      INNER JOIN users u ON d.user_id = u.id
-      WHERE u.username = $1
-    `;
-    const userResult = await pool.query(userQuery, [username]);
-    const userDetails = userResult.rows[0];
-    if (!userDetails) {
-      return res.json({ success: false, message: 'User details not found for SSH.' });
-    }
-    const { serverip, serverport, serveruser, serverpass } = userDetails;
-    const sshClient = new Client();
-    sshClient
-      .on('ready', () => {
-        console.log(`SSH ephemeral ready. Will run command as root: ${command}`);
-        const suCommand = `echo ${serverpass} | sudo -S -p '' /usr/bin/bash -c "${command}"`;
-        sshClient.exec(suCommand, (err, stream) => {
-          if (err) {
-            sshClient.end();
-            return res.json({ success: false, message: err.message });
-          }
-          let output = '';
-          let errorOutput = '';
-          stream
-            .on('data', (data) => { output += data.toString(); })
-            .stderr.on('data', (data) => { errorOutput += data.toString(); })
-            .on('close', () => {
-              sshClient.end();
-              const combined = output + (errorOutput ? '\n' + errorOutput : '');
-              return res.json({ success: true, output: combined.trim() });
-            });
-        });
-      })
-      .on('error', (err) => {
-        console.error('Ephemeral SSH error:', err.message);
-        res.json({ success: false, message: `SSH error: ${err.message}` });
-      })
-      .connect({
-        host: serverip,
-        port: serverport,
-        username: serveruser,
-        password: serverpass,
-      });
-  } catch (err) {
-    console.error('runSSHCommand error:', err.message);
-    return res.json({ success: false, message: err.message });
-  }
-});
-
-//---------------------------------------------------
-// NEW: WebSocket-based permanent SSH => /ws/permanentSsh
-//---------------------------------------------------
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', async (ws, req) => {
-  // Expect ws://host:8080/ws/permanentSsh?username=someUser
-  const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
-  const username = urlParams.get('username');
-  if (!username) {
-    ws.send('No username specified in URL');
-    ws.close();
-    return;
-  }
-  let userDetails;
   try {
-    const userQuery = `
-      SELECT d.serverip, d.serverport, d.serveruser, d.serverpass
-      FROM details d
-      INNER JOIN users u ON d.user_id = u.id
-      WHERE u.username = $1
-    `;
-    const userResult = await pool.query(userQuery, [username]);
-    userDetails = userResult.rows[0];
-    if (!userDetails) {
-      ws.send('User details not found for SSH');
-      ws.close();
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const pathname = url.pathname;
+
+    /* -------- Action Logs: /ws/actionLogs?actionId=... -------- */
+    if (pathname === '/ws/actionLogs') {
+      const actionId = url.searchParams.get('actionId');
+      if (!actionId) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Missing actionId' }));
+        ws.close();
+        return;
+      }
+      const emitter = getActionEmitter(actionId);
+
+      const onData = (chunk) => {
+        try { ws.send(typeof chunk === 'string' ? chunk : chunk.toString()); } catch {}
+      };
+      const onError = (err) => {
+        try { ws.send(JSON.stringify({ type: 'error', message: String(err?.message || err) })); } catch {}
+      };
+      const onDone = (success) => {
+        try { ws.send(JSON.stringify({ type: 'done', success: !!success })); } catch {}
+      };
+
+      emitter.on('data', onData);
+      emitter.on('error', onError);
+      emitter.once('done', onDone);
+
+      ws.on('close', () => {
+        emitter.removeListener('data', onData);
+        emitter.removeListener('error', onError);
+      });
       return;
     }
-  } catch (err) {
-    ws.send(`Error fetching user details: ${err}`);
-    ws.close();
-    return;
-  }
-  const { serverip, serverport, serveruser, serverpass } = userDetails;
-  const sshClient = new Client();
-  sshClient
-    .on('ready', () => {
-      // Create an interactive shell with proper PTY settings.
-      sshClient.shell({ term: 'xterm-256color', cols: 120, rows: 40 }, (err, stream) => {
-        if (err) {
-          ws.send(`Error starting shell: ${err.message}`);
-          ws.close();
-          sshClient.end();
-          return;
-        }
-        // Relay data from the SSH stream to the client.
-        stream.on('data', (data) => {
-          ws.send(data.toString('utf-8'), { binary: false });
-        });
-        stream.stderr.on('data', (data) => {
-          ws.send(data.toString('utf-8'), { binary: false });
-        });
-        stream.on('close', () => {
-          ws.close();
-          sshClient.end();
-        });
-        // Consolidated message handler for resize events and normal input.
-        ws.on('message', (msg) => {
-          try {
-            const data = JSON.parse(msg);
-            if (data.type === 'resize') {
-              stream.setWindow(data.rows, data.cols, 0, 0);
+
+    /* -------- Permanent SSH shell: /ws/permanentSsh?username=... -------- */
+    if (pathname === '/ws/permanentSsh') {
+      const username = url.searchParams.get('username');
+      if (!username) {
+        ws.send('No username specified');
+        ws.close();
+        return;
+      }
+      const det = await getServerDetailsFor(username);
+      if (!det) {
+        ws.send('User details not found for SSH');
+        ws.close();
+        return;
+      }
+      const { serverip, serverport, serveruser, serverpass } = det;
+      const ssh = new SSHClient();
+      ssh
+        .on('ready', () => {
+          ssh.shell({ term: 'xterm-256color', cols: 120, rows: 40 }, (err, stream) => {
+            if (err) {
+              ws.send(`Shell error: ${err.message}`);
+              ws.close();
+              ssh.end();
               return;
             }
-          } catch (e) {
-            // Not JSON; treat as normal input.
-          }
-          stream.write(msg);
-        });
-        ws.on('close', () => {
-          sshClient.end();
-        });
-      });
-    })
-    .on('error', (err) => {
-      ws.send(`SSH error: ${err.message}`);
-      ws.close();
-    })
-    .connect({
-      host: serverip,
-      port: serverport,
-      username: serveruser,
-      password: serverpass,
-    });
+            stream.on('data', (d) => ws.send(d.toString('utf-8')));
+            stream.stderr.on('data', (d) => ws.send(d.toString('utf-8')));
+            stream.on('close', () => { ws.close(); ssh.end(); });
+
+            ws.on('message', (msg) => {
+              try {
+                const data = JSON.parse(msg);
+                if (data.type === 'resize') {
+                  stream.setWindow(data.rows, data.cols, 0, 0);
+                  return;
+                }
+              } catch (_) { /* not JSON */ }
+              stream.write(msg);
+            });
+            ws.on('close', () => ssh.end());
+          });
+        })
+        .on('error', (e) => { try { ws.send(`SSH error: ${e.message}`); } catch {} ws.close(); })
+        .connect({ host: serverip, port: Number(serverport) || 22, username: serveruser, password: serverpass });
+      return;
+    }
+
+    /* -------- Optional: Jail Shell: /ws/jailShell?username=..&jailPath=..&sandboxName=.. -------- */
+    if (pathname === '/ws/jailShell') {
+      const username = url.searchParams.get('username');
+      const jailPath = url.searchParams.get('jailPath');
+      const sandboxName = url.searchParams.get('sandboxName');
+      if (!username || !jailPath || !sandboxName) {
+        ws.send('Missing params (username, jailPath, sandboxName)');
+        ws.close();
+        return;
+      }
+      const det = await getServerDetailsFor(username);
+      if (!det) {
+        ws.send('User details not found for SSH');
+        ws.close();
+        return;
+      }
+      const { serverip, serverport, serveruser, serverpass } = det;
+      const ssh = new SSHClient();
+      ssh
+        .on('ready', () => {
+          ssh.shell({ term: 'xterm-256color', cols: 120, rows: 40 }, (err, stream) => {
+            if (err) {
+              ws.send(`Shell error: ${err.message}`);
+              ws.close();
+              ssh.end();
+              return;
+            }
+            stream.on('data', (d) => ws.send(d.toString('utf-8')));
+            stream.stderr.on('data', (d) => ws.send(d.toString('utf-8')));
+            stream.on('close', () => { ws.close(); ssh.end(); });
+
+            // enter jail
+            setTimeout(() => {
+              stream.write(`stty erase '^?'\n`);
+              stream.write(`cd ${jailPath.replace(/\/$/, '')} && sudo ./jlmkr.py shell ${sandboxName}\n`);
+            }, 250);
+
+            ws.on('message', (msg) => {
+              try {
+                const data = JSON.parse(msg);
+                if (data.type === 'resize') {
+                  stream.setWindow(data.rows, data.cols, 0, 0);
+                  return;
+                }
+              } catch (_) {}
+              stream.write(msg);
+            });
+            ws.on('close', () => ssh.end());
+          });
+        })
+        .on('error', (e) => { try { ws.send(`SSH error: ${e.message}`); } catch {} ws.close(); })
+        .connect({ host: serverip, port: Number(serverport) || 22, username: serveruser, password: serverpass });
+      return;
+    }
+
+    // Unknown WS route
+    ws.send('Unknown WebSocket endpoint');
+    ws.close();
+  } catch (err) {
+    try { ws.send(`WS error: ${String(err?.message || err)}`); } catch {}
+    ws.close();
+  }
 });
+

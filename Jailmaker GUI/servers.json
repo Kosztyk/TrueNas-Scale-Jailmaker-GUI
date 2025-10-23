@@ -5,8 +5,8 @@
       "Group": "Servers",
       "Host": "db",
       "Port": 5432,
-      "Username": "yourdbuser",
-      "Password": "yourpassword",
+      "Username": "jailmaker",
+      "Password": "1FloareA1",
       "SSLMode": "prefer",
       "MaintenanceDB": "jailmakerdb"
     }
