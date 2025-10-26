@@ -9,13 +9,14 @@
  * - Distros/Releases file endpoints
  * - List sandboxes (jlmkr.py list on each path)
  * - Control actions: start/stop/restart/remove
- *   - Legacy REST: /api/controlSandbox
- *   - Streaming: /api/controlSandboxStream + WS /ws/actionLogs
+ *   - Legacy REST: /api/controlSandbox  (REMOVE fixed: pipes name)
+ *   - Streaming: /api/controlSandboxStream + WS /ws/actionLogs (REMOVE fixed: pipes name)
  * - Run arbitrary SSH command
  *   - Legacy REST: /api/runSSHCommand
  *   - Streaming: /api/runSSHCommandStream + WS /ws/actionLogs
  * - Permanent SSH shell over WebSocket: /ws/permanentSsh
  * - Optional Jail Shell over WebSocket: /ws/jailShell
+ * - NEW: Jail SSH by IP: /ws/jailSsh  (connect directly to jail’s IP)
  ****************************************************/
 
 const express = require('express');
@@ -27,6 +28,7 @@ const bcrypt = require('bcrypt');
 const { Client: SSHClient } = require('ssh2');
 const WebSocket = require('ws');
 const { EventEmitter } = require('events');
+const net = require('net'); // NEW: for IP validation
 
 const app = express();
 app.use(express.json());
@@ -104,7 +106,6 @@ async function runSSHStreaming(username, command, emitter) {
 
     conn
       .on('ready', () => {
-        // sudo + bash -lc with proper quoting
         const su = `echo ${serverpass} | sudo -S -p '' /usr/bin/bash -lc ${JSON.stringify(command)}`;
         conn.exec(su, { pty: true }, (err, stream) => {
           if (err) {
@@ -328,7 +329,7 @@ app.get('/api/getSandboxes', async (req, res) => {
       .on('ready', () => {
         let done = 0;
         paths.forEach((p) => {
-          const cmd = `sudo -S sh -c "cd ${p} && ./jlmkr.py list"`; // listing works as-is for you
+          const cmd = `sudo -S sh -c "cd ${p} && ./jlmkr.py list"`;
           ssh.exec(cmd, { pty: true }, (err, stream) => {
             if (err) {
               results.push({ path: p, output: `Error: ${err.message}` });
@@ -372,16 +373,14 @@ app.post('/api/controlSandbox', async (req, res) => {
     return res.json({ success: false, message: 'Action, sandbox name, path, and username are required.' });
   }
   try {
-    // Normalize client-provided path: convert "\ " to real space
-    const normPath = String(jailPath).replace(/\\ /g, ' ');
-    const normName = String(name);
-
+    const safeName = String(name).replace(/'/g, `'\"'\"'`);
+    const safePath = String(jailPath).replace(/'/g, `'\"'\"'`);
     let cmd;
+
     if (action === 'remove') {
-      // jlmkr.py remove asks for the name via input(); pipe it
-      cmd = `cd -- ${sq(normPath)} && printf '%s\\n' ${sq(normName)} | ./jlmkr.py remove ${sq(normName)}`;
+      cmd = `cd '${safePath}' && printf '%s\\n' '${safeName}' | ./jlmkr.py remove '${safeName}'`;
     } else {
-      cmd = `cd -- ${sq(normPath)} && ./jlmkr.py ${action} ${sq(normName)}`;
+      cmd = `cd '${safePath}' && ./jlmkr.py ${action} '${safeName}'`;
     }
 
     const out = await runSSHEphemeral(username, cmd);
@@ -424,14 +423,14 @@ app.post('/api/controlSandboxStream', async (req, res) => {
   }
   const em = getActionEmitter(actionId);
   try {
-    const normPath = String(jailPath).replace(/\\ /g, ' ');
-    const normName = String(name);
-
+    const safeName = String(name).replace(/'/g, `'\"'\"'`);
+    const safePath = String(jailPath).replace(/'/g, `'\"'\"'`);
     let cmd;
+
     if (action === 'remove') {
-      cmd = `cd -- ${sq(normPath)} && printf '%s\\n' ${sq(normName)} | ./jlmkr.py remove ${sq(normName)}`;
+      cmd = `cd '${safePath}' && printf '%s\\n' '${safeName}' | ./jlmkr.py remove '${safeName}'`;
     } else {
-      cmd = `cd -- ${sq(normPath)} && ./jlmkr.py ${action} ${sq(normName)}`;
+      cmd = `cd '${safePath}' && ./jlmkr.py ${action} '${safeName}'`;
     }
 
     runSSHStreaming(username, cmd, em)
@@ -479,19 +478,16 @@ app.post('/api/runSSHCommandStream', async (req, res) => {
   }
 });
 
-// POST /api/saveUserDetails
-// Body: { username, serverIp, serverPort, serverUser, serverPassword, paths: [] }
+// Save user details (partial updates allowed)
 app.post('/api/saveUserDetails', async (req, res) => {
   try {
     const { username, serverIp, serverPort, serverUser, serverPassword, paths } = req.body || {};
     if (!username) return res.json({ success: false, message: 'Username is required.' });
 
-    // find user id
     const u = await pool.query(`SELECT id FROM users WHERE username=$1`, [username]);
     const userId = u.rows[0]?.id;
     if (!userId) return res.json({ success: false, message: 'User not found.' });
 
-    // update details (only if values provided)
     const toSet = {};
     if (serverIp !== undefined) toSet.serverip = serverIp;
     if (serverPort !== undefined) toSet.serverport = Number(serverPort) || null;
@@ -629,7 +625,63 @@ wss.on('connection', async (ws, req) => {
       return;
     }
 
-    /* -------- Optional: Jail Shell: /ws/jailShell?username=..&jailPath=..&sandboxName=.. -------- */
+    /* -------- NEW: Jail SSH by IP: /ws/jailSsh?username=..&ip=.. -------- */
+    if (pathname === '/ws/jailSsh') {
+      const username = url.searchParams.get('username');
+      let ipRaw = url.searchParams.get('ip') || '';
+      if (!username || !ipRaw) { ws.send('Missing params (username, ip)'); ws.close(); return; }
+
+      // sanitize and validate IP (support bracketed IPv6)
+      const host = ipRaw.trim().replace(/[^\dA-Fa-f:\[\]\.]/g, '');
+      const hostUnbracketed = host.replace(/^\[|\]$/g, '');
+      if (!net.isIP(hostUnbracketed)) {
+        ws.send(`Invalid IP provided: ${ipRaw}`);
+        ws.close();
+        return;
+      }
+
+      const det = await getServerDetailsFor(username);
+      if (!det) { ws.send('User details not found for SSH'); ws.close(); return; }
+      const { serveruser, serverpass } = det;
+
+      const ssh = new SSHClient();
+      ssh
+        .on('ready', () => {
+          ssh.shell({ term: 'xterm-256color', cols: 120, rows: 40 }, (err, stream) => {
+            if (err) {
+              ws.send(`Shell error: ${err.message}`);
+              ws.close();
+              ssh.end();
+              return;
+            }
+            stream.on('data', (d) => ws.send(d.toString('utf-8')));
+            stream.stderr.on('data', (d) => ws.send(d.toString('utf-8')));
+            stream.on('close', () => { ws.close(); ssh.end(); });
+
+            ws.on('message', (msg) => {
+              try {
+                const data = JSON.parse(msg);
+                if (data.type === 'resize') {
+                  stream.setWindow(data.rows, data.cols, 0, 0);
+                  return;
+                }
+              } catch (_) { /* not JSON */ }
+              stream.write(msg);
+            });
+            ws.on('close', () => ssh.end());
+          });
+        })
+        .on('error', (e) => { try { ws.send(`SSH error: ${e.message}`); } catch {} ws.close(); })
+        .connect({
+          host: hostUnbracketed, // validated
+          port: 22,
+          username: serveruser,
+          password: serverpass,
+        });
+      return;
+    }
+
+    /* -------- Optional: Jail Shell via jlmkr.py: /ws/jailShell?username=..&jailPath=..&sandboxName=.. -------- */
     if (pathname === '/ws/jailShell') {
       const username = url.searchParams.get('username');
       const jailPath = url.searchParams.get('jailPath');
@@ -660,7 +712,6 @@ wss.on('connection', async (ws, req) => {
             stream.stderr.on('data', (d) => ws.send(d.toString('utf-8')));
             stream.on('close', () => { ws.close(); ssh.end(); });
 
-            // enter jail (kept as-is; adjust if needed later)
             setTimeout(() => {
               stream.write(`stty erase '^?'\n`);
               stream.write(`cd ${jailPath.replace(/\/$/, '')} && sudo ./jlmkr.py shell ${sandboxName}\n`);
