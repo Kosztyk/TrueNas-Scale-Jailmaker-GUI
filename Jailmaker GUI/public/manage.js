@@ -24,7 +24,7 @@ if (!username) {
 let allSandboxes = [];
 let allPaths = [];
 let selectedPath = null;
-let serverPassword = null; // <-- used by Connect SSH terminal
+let serverPassword = null; // used by Connect SSH terminal
 
 /* ---------- theme ---------- */
 (function initTheme(){
@@ -39,8 +39,8 @@ themeToggle?.addEventListener('click', () => {
 });
 function updateThemeLabel(){
   const light = document.body.classList.contains('theme-light');
-  themeIcon.textContent = light ? '☀️' : '🌙';
-  themeLabel.textContent = light ? 'Light' : 'Dark';
+  if (themeIcon) themeIcon.textContent = light ? '☀️' : '🌙';
+  if (themeLabel) themeLabel.textContent = light ? 'Light' : 'Dark';
 }
 
 /* ---------- helpers ---------- */
@@ -50,6 +50,11 @@ function toast(msg, type='ok', ms=3200){
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), ms);
+}
+
+// Normalize any "\ " sequences that may come from DB or listing output
+function normalizePath(p='') {
+  return String(p).replace(/\\ /g, ' ');
 }
 
 function cleanOutputLine(line) {
@@ -70,6 +75,22 @@ function cleanOutputLine(line) {
 function uuid() {
   if (crypto?.randomUUID) return crypto.randomUUID();
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+/* Robust IP extraction (used by jail Shell) */
+function extractIP(str) {
+  if (!str) return '';
+  const v4 = str.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  if (v4) return v4[0];
+  const v6 = str.match(/[0-9a-fA-F:\[\]]{2,}/);
+  return v6 ? v6[0].replace(/^\[|\]$/g, '') : '';
+}
+function pickBestIP(list) {
+  for (const s of (list || [])) {
+    const ip = extractIP(s);
+    if (ip) return ip;
+  }
+  return '';
 }
 
 /* ---------- log streaming modal ---------- */
@@ -211,7 +232,12 @@ async function fetchSandboxes() {
 
     const oldChoice = selectedPath;
     pathsList.innerHTML = '';
-    allSandboxes = data.sandboxes;
+
+    // --- normalize every sandbox path once here ---
+    allSandboxes = (data.sandboxes || []).map(s => ({
+      ...s,
+      path: normalizePath(s.path)
+    }));
 
     allSandboxes.sort((a, b) => {
       const aN = (a.output.split(/\s+/)[0] || '').toLowerCase();
@@ -219,14 +245,15 @@ async function fetchSandboxes() {
       return aN.localeCompare(bN);
     });
 
-    allPaths = [...new Set(allSandboxes.map(s => s.path))];
+    // collect normalized paths
+    allPaths = [...new Set(allSandboxes.map(s => normalizePath(s.path)))];
 
     // path boxes
     allPaths.forEach(path => {
       const box = document.createElement('div');
       box.className = 'path-box';
       box.textContent = `Path: ${path}`;
-      box.dataset.path = path;
+      box.dataset.path = path; // normalized value
       box.addEventListener('click', () => {
         selectedPath = path;
         showAllBtn.classList.remove('active');
@@ -294,7 +321,7 @@ function flattenJails(sandboxes) {
         const [ name, running, startup, gpuIntel, gpuNvidia, os, version, ...addresses ] = parts;
         jailList.push({
           name, running, startup, gpuIntel, gpuNvidia, os, version,
-          addresses, path: sbox.path
+          addresses, path: normalizePath(sbox.path)
         });
       });
   });
@@ -359,6 +386,8 @@ function displaySandboxes(sandboxes) {
     const startupBadge = (startup?.toLowerCase() === 'true')
       ? `<span class="badge neutral">Startup</span>` : ``;
 
+    const ip = pickBestIP(addresses);
+
     const card = document.createElement('div');
     card.className = 'sandbox-card';
     card.innerHTML = `
@@ -375,11 +404,11 @@ function displaySandboxes(sandboxes) {
         ${addresses?.length ? `<span class="badge">${addresses.join(' ')}</span>` : ''}
       </div>
       <div class="card-actions">
-        <button class="control-btn" data-action="start"   data-name="${name}" data-path="${path}">Start</button>
-        <button class="control-btn" data-action="stop"    data-name="${name}" data-path="${path}">Stop</button>
-        <button class="control-btn" data-action="restart" data-name="${name}" data-path="${path}">Restart</button>
-        <button class="control-btn" data-action="remove"  data-name="${name}" data-path="${path}">Remove</button>
-        <button class="control-btn" data-action="shell"   data-name="${name}" data-path="${path}">Shell</button>
+        <button class="control-btn" data-action="start"   data-name="${name}" data-path="${normalizePath(path)}">Start</button>
+        <button class="control-btn" data-action="stop"    data-name="${name}" data-path="${normalizePath(path)}">Stop</button>
+        <button class="control-btn" data-action="restart" data-name="${name}" data-path="${normalizePath(path)}">Restart</button>
+        <button class="control-btn" data-action="remove"  data-name="${name}" data-path="${normalizePath(path)}">Remove</button>
+        <button class="control-btn" data-action="shell"   data-name="${name}" data-path="${normalizePath(path)}" data-ip="${ip}">Shell</button>
       </div>
     `;
     sandboxesContainer.appendChild(card);
@@ -390,7 +419,8 @@ function displaySandboxes(sandboxes) {
     btn.addEventListener('click', async () => {
       const action = btn.dataset.action;
       const name = btn.dataset.name;
-      const path = btn.dataset.path;
+      // normalize at click time too (belt & suspenders)
+      const path = normalizePath(btn.dataset.path);
 
       if (!action || !name || !path || !username) {
         toast('Missing parameters for action.', 'err');
@@ -398,8 +428,12 @@ function displaySandboxes(sandboxes) {
       }
 
       if (action === 'shell') {
-        // Provided elsewhere (e.g., enhancedTerminal.js)
-        openSandboxShell(name, path, username);
+        // jail SSH by IP (handled elsewhere if you kept that version); if not needed, call your shell opener.
+        const raw = btn.dataset.ip || '';
+        const ip = extractIP(raw);
+        if (!ip) { toast('No valid IP found for this jail.', 'err'); return; }
+        // If you prefer host shell here instead, swap to createSSHConsolePopup()
+        createJailSSHConsolePopup(ip, name);
         return;
       }
 
@@ -417,6 +451,9 @@ function displaySandboxes(sandboxes) {
 
 /* ---------- action runner with log stream ---------- */
 async function runActionStream(action, name, path) {
+  // path already normalized by caller; normalize again to be 100% sure
+  const safePath = normalizePath(path);
+
   const actionId = uuid();
   const titleMap = { start: 'Start Jail', stop: 'Stop Jail', restart: 'Restart Jail', remove: 'Remove Jail' };
   const modal = openLogStreamModal(`${titleMap[action] || action}: ${name}`, actionId);
@@ -425,7 +462,7 @@ async function runActionStream(action, name, path) {
     const r = await fetch('/api/controlSandboxStream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, name, path, username, actionId }),
+      body: JSON.stringify({ action, name, path: safePath, username, actionId }),
     });
     const data = await r.json();
     if (!data.success) {
@@ -441,7 +478,8 @@ async function runActionStream(action, name, path) {
 function filterSandboxes(path, activeElement) {
   Array.from(pathsList.children).forEach(item => item.classList.remove('active'));
   activeElement.classList.add('active');
-  const filtered = allSandboxes.filter(s => s.path === path);
+  const normalized = normalizePath(path);
+  const filtered = allSandboxes.filter(s => normalizePath(s.path) === normalized);
   displaySandboxes(filtered);
 
   // Update status bar to reflect filtered list
@@ -569,7 +607,92 @@ function confirmRemove(name, cb){
   }
 }
 
-/* ---------- Permanent SSH: Connect SSH popup ---------- */
+/* ---------- Permanent SSH: Connect to JAIL by IP (popup) ---------- */
+function createJailSSHConsolePopup(ip, titleName = 'Jail') {
+  ip = extractIP(ip);
+  if (!ip) { toast('Invalid IP for jail SSH.', 'err'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;';
+  const popup = document.createElement('div');
+  Object.assign(popup.style, {
+    position: 'absolute', top: '10%', left: '30%', width: '60%', height: '80%',
+    background: 'rgba(255,255,255,.9)', borderRadius: '8px',
+    boxShadow: '0 0 10px rgba(0,0,0,0.3)', display: 'flex',
+    flexDirection: 'column', padding: '10px', resize: 'both', overflow: 'auto'
+  });
+
+  const title = document.createElement('h3');
+  title.textContent = `Permanent SSH Terminal — ${titleName} (${ip})`;
+  title.style.cursor = 'move';
+
+  const termWrap = document.createElement('div');
+  termWrap.style.cssText = 'flex:1;overflow:hidden;width:100%;height:100%';
+
+  const inputWrap = document.createElement('div');
+  inputWrap.style.cssText = 'display:flex;margin-top:10px';
+  const cmdInput = document.createElement('input');
+  cmdInput.type = 'text'; cmdInput.placeholder = 'Type your command...'; cmdInput.style.flex = '1';
+  const sendBtn = document.createElement('button'); sendBtn.textContent = 'Send'; sendBtn.style.marginLeft = '5px';
+  inputWrap.appendChild(cmdInput); inputWrap.appendChild(sendBtn);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close'; closeBtn.style.marginTop = '10px';
+
+  popup.appendChild(title);
+  popup.appendChild(termWrap);
+  popup.appendChild(inputWrap);
+  popup.appendChild(closeBtn);
+  overlay.appendChild(popup);
+  document.body.appendChild(overlay);
+
+  // draggable
+  title.addEventListener('mousedown', (e) => {
+    e.preventDefault(); let lx=e.clientX, ly=e.clientY;
+    const mm = (ev) => { const dx=ev.clientX-lx, dy=ev.clientY-ly; lx=ev.clientX; ly=ev.clientY;
+      popup.style.top = (popup.offsetTop+dy)+'px'; popup.style.left=(popup.offsetLeft+dx)+'px'; };
+    const mu = () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); };
+    document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+  });
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${proto}://${location.host}/ws/jailSsh?username=${encodeURIComponent(username)}&ip=${encodeURIComponent(ip)}`;
+  const ws = new WebSocket(wsUrl);
+
+  const term = new Terminal({ convertEol:false, scrollback:1000, cursorBlink:true, theme:{ background:'#1e1e1e', foreground:'#cccccc' } });
+  term.open(termWrap);
+  let fitAddon;
+  try { fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); fitAddon.fit(); } catch {}
+
+  const sendResize = () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type:'resize', cols:term.cols, rows:term.rows }));
+    }
+  };
+  window.addEventListener('resize', () => { try { fitAddon && fitAddon.fit(); } catch{} sendResize(); });
+
+  term.onData(d => { if (ws.readyState===WebSocket.OPEN) ws.send(d); });
+
+  ws.onopen = () => {
+    term.write(`\r\n[Connected to jail ${ip}…]\r\n`);
+    sendResize();
+    term.focus();
+  };
+  ws.onmessage = (e) => term.write(e.data);
+  ws.onclose   = () => term.write('\r\n[SSH session closed]\r\n');
+  ws.onerror   = () => term.write(`\r\n[WebSocket error]\r\n`);
+
+  const sendCommand = () => {
+    const cmd = cmdInput.value + '\r\n'; cmdInput.value = '';
+    if (ws.readyState === WebSocket.OPEN) ws.send(cmd); else term.write('\r\n[Error: WebSocket not open]\r\n');
+  };
+  cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendCommand(); } });
+  sendBtn.addEventListener('click', sendCommand);
+
+  closeBtn.addEventListener('click', () => { try { ws.close(); } catch {} overlay.remove(); });
+}
+
+/* ---------- Permanent SSH: Connect to HOST (left-pane green button) ---------- */
 function createSSHConsolePopup() {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;';
@@ -616,10 +739,8 @@ function createSSHConsolePopup() {
     document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
   });
 
-  // Theme once (no observers, no API footguns)
+  // Theme once
   const light = document.body.classList.contains('theme-light');
-  const termThemeLight = { background:'#ffffff', foreground:'#111827' };
-  const termThemeDark  = { background:'#1e1e1e', foreground:'#cccccc' };
   if (light) {
     popup.style.background = 'rgba(255,255,255,.95)';
     popup.style.color = '#111827';
@@ -628,89 +749,52 @@ function createSSHConsolePopup() {
     popup.style.color = '#e5e7eb';
   }
 
-  // WS
+  // WS to HOST
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsUrl = `${proto}://${location.host}/ws/permanentSsh?username=${encodeURIComponent(username)}`;
   const ws = new WebSocket(wsUrl);
 
-  // xterm.js (unchanged visuals; theme applied below safely)
-  const term = new Terminal({ convertEol:false, scrollback:1000, cursorBlink:true, theme: light ? termThemeLight : termThemeDark });
+  // xterm.js (keep visuals)
+  const termTheme = light ? { background:'#ffffff', foreground:'#111827' } : { background:'#1e1e1e', foreground:'#cccccc' };
+  const term = new Terminal({ convertEol:false, scrollback:1000, cursorBlink:true, theme: termTheme });
   term.open(termWrap);
   let fitAddon;
-  try {
-    fitAddon = new FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
-    fitAddon.fit();
-  } catch (e) {
-    // If FitAddon is not available, keep going without it
-  }
-
-  // Safe theme setter (works on new & old xterm)
-  try {
-    if (term.options) {
-      term.options.theme = light ? termThemeLight : termThemeDark;
-    }
-  } catch (_) {}
+  try { fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); fitAddon.fit(); } catch {}
 
   const sendResize = () => {
-    try {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type:'resize', cols:term.cols, rows:term.rows }));
-      }
-    } catch (_){}
-  };
-  window.addEventListener('resize', () => { try { fitAddon && fitAddon.fit(); } catch(_){} sendResize(); });
-
-  // Never freeze: if WS doesn't open in time, show a note and keep close working
-  const wsOpenTimeout = setTimeout(() => {
-    try { term.write('\r\n[Connection timeout: server did not open the session]\r\n'); } catch(_){}
-  }, 8000);
-
-  let closed = false;
-  function safeClose() {
-    if (closed) return;
-    closed = true;
-    clearTimeout(wsOpenTimeout);
-    try { ws.close(); } catch {}
-    try { overlay.remove(); } catch {}
-  }
-
-  term.onData(d => { if (ws.readyState===WebSocket.OPEN) { try { ws.send(d); } catch(_){} } });
-
-  ws.onopen = () => {
-    clearTimeout(wsOpenTimeout);
-    term.write('\r\n[Connected to permanent SSH session]\r\n');
-    sendResize();
-    try { ws.send("stty erase '^?'\n"); } catch(_){}
-    if (typeof serverPassword !== 'undefined' && serverPassword) {
-      try { ws.send(`echo ${serverPassword} | sudo -S -p '' /bin/bash -i\n`); } catch(_){}
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type:'resize', cols:term.cols, rows:term.rows }));
     }
   };
-  ws.onmessage = (e) => { try { term.write(e.data); } catch(_){} };
-  ws.onclose   = () => { try { term.write('\r\n[SSH session closed]\r\n'); } catch(_){} };
-  ws.onerror   = (err) => { try { term.write(`\r\n[WebSocket error]\r\n`); } catch(_){} };
+  window.addEventListener('resize', () => { try { fitAddon && fitAddon.fit(); } catch{} sendResize(); });
+
+  term.onData(data => { if (ws.readyState === WebSocket.OPEN) ws.send(data); });
+
+  ws.onopen = () => {
+    term.write('\r\n[Connected to permanent SSH session]\r\n');
+    sendResize();
+    ws.send("stty erase '^?'\n");
+    if (serverPassword) {
+      ws.send(`echo ${serverPassword} | sudo -S -p '' /bin/bash -i\n`);
+    }
+  };
+  ws.onmessage = (evt) => { term.write(evt.data); };
+  ws.onclose   = () => { term.write('\r\n[SSH session closed]\r\n'); };
+  ws.onerror   = () => { term.write(`\r\n[WebSocket error]\r\n`); };
 
   const sendCommand = () => {
     const cmd = cmdInput.value + '\r\n'; cmdInput.value = '';
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(cmd); } catch(_) { term.write('\r\n[Error: WebSocket send failed]\r\n'); }
-    } else {
-      term.write('\r\n[Error: WebSocket not open]\r\n');
-    }
+    if (ws.readyState === WebSocket.OPEN) ws.send(cmd);
+    else term.write('\r\n[Error: WebSocket not open]\r\n');
   };
-  cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendCommand(); } });
+  cmdInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); sendCommand(); }
+  });
   sendBtn.addEventListener('click', sendCommand);
 
-  // Always closable (even if WS is stuck connecting)
-  closeBtn.addEventListener('click', safeClose);
-  // Escape to close
-  const onKey = (e) => { if (e.key === 'Escape') safeClose(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) safeClose(); });
+  closeBtn.addEventListener('click', () => { try { ws.close(); } catch {} overlay.remove(); });
 }
-
 
 /* kick off */
 fetchSandboxes();
-
 
