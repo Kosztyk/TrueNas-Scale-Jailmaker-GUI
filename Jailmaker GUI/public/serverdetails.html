@@ -8,11 +8,17 @@
 </head>
 <body>
   <div class="container">
-    <div class="page-header">
-      <img src="truenas.png" alt="App Icon" class="app-icon-left">
+    <div class="page-header" style="justify-content:space-between;">
+      <div class="brand" style="display:flex;align-items:center;gap:12px;">
+        <img src="truenas.png" alt="App Icon" class="app-icon-left">
+        <h1 style="margin:0;font-size:1.25rem;">Server Details</h1>
+      </div>
+      <!-- tiny dark/light toggle -->
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+        <span id="themeIcon">🌙</span><span id="themeLabel">Dark</span>
+      </button>
     </div>
 
-    <h1>Enter Server Details</h1>
     <form id="serverDetailsForm">
       <div class="form-row">
         <label for="serverIp">Server IP/DNS</label>

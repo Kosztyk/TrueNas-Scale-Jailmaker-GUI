@@ -1,4 +1,19 @@
 /* =========
+   Global reset / sizing
+   ========= */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* =========
    Design tokens (dark)
    ========= */
 :root{
@@ -16,6 +31,9 @@
   --shadow: 0 10px 30px rgba(0,0,0,.35);
   --spacing: 14px;
   --font: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  --border: rgba(255,255,255,.12);
+
+  
 }
 
 /* =========
@@ -32,6 +50,12 @@
   --ok: #059669;
   --warn: #b45309;
   --shadow: 0 10px 30px rgba(0,0,0,.08);
+  --border: rgba(0,0,0,.1);
+
+*,
+*::before,
+*::after { box-sizing: border-box; }  
+
 }
 
 html, body {
@@ -75,21 +99,57 @@ form { display: flex; flex-direction: column; gap: 1rem; }
 
 label { font-weight: 600; color: var(--muted); }
 
+/* >>> High-visibility inputs (dark) <<< */
 input, select, textarea {
   width: 100%;
-  padding: 0.625rem;
-  border: 1px solid rgba(0,0,0,0.08);
-  background: #0f172a;
+  padding: 0.625rem 0.9rem;             /* a bit wider for select chevron */
+  border: 1px solid rgba(255,255,255,.22); /* brighter border in dark */
+  background: #0f172a;                  /* slightly lighter than card */
   color: var(--text);
   border-radius: 10px;
   font-size: 1rem;
+  transition: box-shadow .15s ease, border-color .15s ease, background-color .15s ease;
 }
+input::placeholder, textarea::placeholder{ color: rgba(229,231,235,.60); } /* brighter placeholder */
+
+input:focus, select:focus, textarea:focus{
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.28);
+}
+
+/* Keep fields readable in light */
 .theme-light input,
 .theme-light select,
 .theme-light textarea{
   background:#f8fafc;
-  border:1px solid rgba(0,0,0,.08);
+  border:1px solid rgba(0,0,0,.14);
   color: var(--text);
+}
+.theme-light input::placeholder,
+.theme-light textarea::placeholder{ color: rgba(15,23,42,.55); }
+.theme-light input:focus,
+.theme-light select:focus,
+.theme-light textarea:focus{
+  box-shadow: 0 0 0 3px rgba(37,99,235,.22);
+}
+
+/* Subtle, consistent select chevron (keeps your rounded style) */
+select{
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #9ca3af 50%),
+    linear-gradient(135deg, #9ca3af 50%, transparent 50%),
+    linear-gradient(to right, transparent, transparent);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px),
+    calc(100% - 2.5rem) 0;
+  background-size: 6px 6px, 6px 6px, 1px 100%;
+  background-repeat: no-repeat;
+  padding-right: 2.5rem;
 }
 
 button {
@@ -166,7 +226,7 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
   margin-top: 10px;
 }
 
-/* NEW: add gap under Show All */
+/* gap under Show All */
 #showAllBtn { 
   margin-bottom: 10px; 
 }
@@ -237,10 +297,7 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
 .sandbox-card h4 { margin: 0 0 8px; }
 .sandbox-card p { margin: 6px 0; color: var(--muted); }
 
-.os-icon {
-  width: 32px;
-  height: 32px;
-}
+.os-icon { width: 32px; height: 32px; }
 
 .badge{
   display:inline-flex; align-items:center; gap:.4rem;
@@ -304,19 +361,13 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
   display: flex; flex-direction: column;
   resize: both;
 }
-.theme-light .modal{
-  background: rgba(255,255,255,0.98);
-}
+.theme-light .modal{ background: rgba(255,255,255,0.98); }
 .modal h3{
   margin: 0 0 10px; padding-bottom: 8px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
-  cursor: move;
-  user-select: none;
-  text-align: center;
+  cursor: move; user-select: none; text-align: center;
 }
-.theme-light .modal h3{
-  border-bottom:1px solid rgba(0,0,0,.08);
-}
+.theme-light .modal h3{ border-bottom:1px solid rgba(0,0,0,.08); }
 
 /* Create Jail specific */
 .form-row{
@@ -324,22 +375,23 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
   gap: 10px; align-items: center; width: 100%;
 }
 .form-note { font-size: 12px; color: var(--muted); margin: -6px 0 8px 200px; }
+
+/* Segmented toggle — your look preserved, with tiny contrast polish */
 .segmented{
   display:inline-flex; border:1px solid rgba(255,255,255,.12);
   border-radius:999px; overflow:hidden;
+  background: rgba(255,255,255,.04);
 }
 .segmented input{ display:none; }
 .segmented label{
-  padding:.4rem .9rem; cursor:pointer; user-select:none; background:transparent;
+  padding:.4rem .9rem; cursor:pointer; user-select:none; background:transparent; font-weight:600;
 }
-.segmented input:checked + label{ background:rgba(255,255,255,.06); }
-.theme-light .segmented{ border-color: rgba(0,0,0,.08); }
-.theme-light .segmented input:checked + label{ background: rgba(0,0,0,.06); }
+.segmented input:checked + label{ background:rgba(255,255,255,.10); }
+.theme-light .segmented{ border-color: rgba(0,0,0,.08); background: rgba(0,0,0,.03); }
+.theme-light .segmented input:checked + label{ background: rgba(0,0,0,.08); }
 
 /* Toggle button (mobile) */
-#toggleLeftPane {
-  display: none;
-}
+#toggleLeftPane { display: none; }
 
 @media (max-width: 900px){
   .form-row{ grid-template-columns: 1fr; }
@@ -360,7 +412,6 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
     cursor: pointer;
     box-shadow: var(--shadow);
   }
-
   #left-pane {
     position: fixed;
     top: 0; left: 0; width: 260px; height: 100%;
@@ -370,7 +421,6 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
     z-index: 1000;
   }
   #left-pane.open { transform: translateX(0); }
-
   #right-pane { width: 100%; }
 }
 
@@ -382,4 +432,5 @@ button:focus { outline: 2px solid var(--accent-600); outline-offset: 2px; }
   font-size: 28px; line-height:0; color:#fff;
   z-index: 1100;
 }
+
 

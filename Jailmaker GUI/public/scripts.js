@@ -5,6 +5,47 @@
 /* utils */
 function $(id){ return document.getElementById(id); }
 
+/* ---------- Theme (works on any page that has the toggle) ---------- */
+(function initTheme(){
+  const saved = localStorage.getItem('theme') || 'dark';
+  if (saved === 'light') document.body.classList.add('theme-light');
+  updateThemeLabel();
+
+  const btn = $('themeToggle');
+  btn?.addEventListener('click', () => {
+    document.body.classList.toggle('theme-light');
+    localStorage.setItem('theme', document.body.classList.contains('theme-light') ? 'light' : 'dark');
+    updateThemeLabel();
+  });
+})();
+
+function updateThemeLabel(){
+  const light = document.body.classList.contains('theme-light');
+  const icon  = $('themeIcon');
+  const label = $('themeLabel');
+  if (icon)  icon.textContent  = light ? '☀️' : '🌙';
+  if (label) label.textContent = light ? 'Light' : 'Dark';
+}
+
+/* ---------- Hide register on index.html when a user exists ---------- */
+(async function hideRegisterIfUsersExist() {
+  const registerEl = document.getElementById('registerForm');
+  const dividerEl  = document.querySelector('.divider');
+  if (!registerEl) return; // not on index.html
+
+  try {
+    const r = await fetch('/api/hasUsers');
+    const j = await r.json();
+    if (j.hasUsers) {
+      if (dividerEl)  dividerEl.style.display  = 'none';
+      registerEl.style.display = 'none';
+    }
+  } catch (_) {
+    // If it errors, we keep the register visible (safer UX)
+  }
+})();
+
+
 /* ---------- Page: index.html ---------- */
 const loginForm = $('loginForm');
 const registerForm = $('registerForm');

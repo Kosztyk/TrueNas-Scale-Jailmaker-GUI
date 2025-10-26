@@ -22,6 +22,7 @@ async function openCreateJailPopup() {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
+  // draggable by header
   modal.querySelector('h3').addEventListener('mousedown', e => dragModal(e, modal));
   function dragModal(e, el){
     e.preventDefault();
@@ -65,7 +66,7 @@ async function openCreateJailPopup() {
       <div class="segmented">
         <input type="radio" id="dockerYes" name="docker" value="yes"/>
         <label for="dockerYes">Yes</label>
-        <input type="radio" id="dockerNo" name="docker" value="no"/>
+        <input type="radio" id="dockerNo"  name="docker" value="no"/>
         <label for="dockerNo">No</label>
       </div>
       `
@@ -114,7 +115,7 @@ async function openCreateJailPopup() {
       <div class="segmented">
         <input type="radio" id="bindYes" name="bind" value="yes"/>
         <label for="bindYes">Yes</label>
-        <input type="radio" id="bindNo" name="bind" value="no" checked/>
+        <input type="radio" id="bindNo"  name="bind" value="no" checked/>
         <label for="bindNo">No</label>
       </div>
       `
@@ -130,23 +131,65 @@ async function openCreateJailPopup() {
 
   document.getElementById('closePopupBtn').addEventListener('click', () => overlay.remove());
 
-  // load dynamic data
-  if (typeof loadDistros === 'function') loadDistros();
-  populateJailInstallationPaths();
-
-  // bind toggles
-  const bindYes = document.getElementById('bindYes');
-  const bindNo = document.getElementById('bindNo');
+  // Elements for bind show/hide
+  const bindYes  = document.getElementById('bindYes');
+  const bindNo   = document.getElementById('bindNo');
   const hostPath = document.getElementById('hostPath');
   const jailPath = document.getElementById('jailPath');
+  const hostRow  = hostPath.closest('.form-row');
+  const jailRow  = jailPath.closest('.form-row');
+
   function updateBindFields() {
     const on = bindYes.checked;
     hostPath.disabled = !on;
     jailPath.disabled = !on;
+    if (hostRow) hostRow.style.display = on ? '' : 'none';
+    if (jailRow)  jailRow.style.display  = on ? '' : 'none';
   }
   bindYes.addEventListener('change', updateBindFields);
   bindNo.addEventListener('change', updateBindFields);
-  updateBindFields();
+  updateBindFields(); // initial state
+
+  // Elements we hide when Docker = Yes (old behavior)
+  const distroRow   = document.getElementById('distro')?.closest('.form-row');
+  const releaseRow  = document.getElementById('release')?.closest('.form-row');
+  const intelRow    = document.getElementById('intelYes')?.closest('.form-row');
+  const nvidiaRow   = document.getElementById('nvidiaYes')?.closest('.form-row');
+  const macvlanRow  = document.getElementById('macvlanYes')?.closest('.form-row');
+
+  const dockerYes   = document.getElementById('dockerYes');
+  const dockerNo    = document.getElementById('dockerNo');
+
+  function setRowHidden(rowEl, hidden){
+    if (!rowEl) return;
+    rowEl.style.display = hidden ? 'none' : '';
+    // Disable inputs when hidden so they don't get accidentally read
+    rowEl.querySelectorAll('input,select,button,textarea').forEach(el => { el.disabled = hidden; });
+  }
+
+  function updateDockerVisibility() {
+    const isDocker = dockerYes.checked;
+
+    // Old flow: when Docker = Yes, ONLY keep:
+    // - Jail Name
+    // - Jail Installation Path
+    // - Bind drives? (and its Host/Jail Path that remain governed by bind toggle above)
+    setRowHidden(distroRow,  isDocker);
+    setRowHidden(releaseRow, isDocker);
+    setRowHidden(intelRow,   isDocker);
+    setRowHidden(nvidiaRow,  isDocker);
+    setRowHidden(macvlanRow, isDocker);
+
+    // Keep bind rows as they are (host/jail visibility handled by updateBindFields)
+  }
+
+  dockerYes?.addEventListener('change', updateDockerVisibility);
+  dockerNo?.addEventListener('change', updateDockerVisibility);
+  updateDockerVisibility(); // initial state
+
+  // load dynamic data
+  if (typeof loadDistros === 'function') loadDistros();
+  populateJailInstallationPaths();
 
   formWrap.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -161,19 +204,21 @@ async function openCreateJailPopup() {
     const bindOn       = bindYes.checked;
     const hostVal      = hostPath.value.trim();
     const jailVal      = jailPath.value.trim();
-    const dockerYesSel = document.getElementById('dockerYes').checked;
+    const dockerYesSel = dockerYes.checked;
 
-    if (!jailName) return alert('Please enter a jail name.');
+    if (!jailName)    return alert('Please enter a jail name.');
     if (!installPath) return alert('Please pick an installation path.');
 
     const networkArg = macvlanYes ? `--network-macvlan=eno1` : ``;
 
     let command = '';
     if (dockerYesSel) {
+      // EXACT legacy Docker flow (as requested)
       command = `cd ${installPath} && curl -L -O https://raw.githubusercontent.com/kosztyk/TrueNas-Scale-Jailmaker-GUI/main/config && ./jlmkr.py create --start --config ${installPath}config "${jailName}"`;
       if (bindOn && hostVal && jailVal) {
         command += ` --network-macvlan=eno1 --bind='${hostVal}:${jailVal}' --resolv-conf=bind-host --system-call-filter='add_key keyctl bpf'`;
       }
+      // No additional quoting or changes to keep old behavior 1:1.
     } else {
       if (!distroVal || !releaseVal) return alert('Please select Distro and Release.');
       command = `cd ${installPath} && ./jlmkr.py create --start --distro=${distroVal} --release=${releaseVal} --startup=1 --seccomp=1 -gi=${intelVal} -gn=${nvidiaVal} "${jailName}" ${networkArg}`;
@@ -185,7 +230,6 @@ async function openCreateJailPopup() {
 
     const actionId = (crypto?.randomUUID?.() || (Math.random().toString(36).slice(2) + Date.now().toString(36)));
 
-    // Ensure log modal exists
     if (!ensure(window.openLogStreamModal, 'openLogStreamModal')) {
       alert('Could not open log window. Please refresh the page.');
       return;
@@ -204,8 +248,7 @@ async function openCreateJailPopup() {
         alert(`Error starting creation:\n${data.message}`);
         logModal.close();
       } else {
-        // Optionally close the form overlay immediately so only logs remain
-        overlay.remove();
+        overlay.remove(); // leave only logs
       }
     } catch (err) {
       alert(`Error starting creation:\n${err}`);

@@ -7,38 +7,44 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
+  <div class="container" role="dialog" aria-labelledby="title">
     <div class="page-header">
-      <img src="truenas.png" alt="App Icon" class="app-icon-left">
-    </div>    
+      <div class="brand">
+        <img src="truenas.png" alt="App Icon" class="app-icon-left">
+        <h1 id="title" style="margin:0;">Welcome to Jailmaker Manager</h1>
+      </div>
+      <!-- tiny dark/light toggle -->
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+        <span id="themeIcon">🌙</span><span id="themeLabel">Dark</span>
+      </button>
+    </div>
 
-    <h1>Welcome to Jailmaker Manager</h1>
-
-    <form id="loginForm">
+    <form id="loginForm" autocomplete="on">
       <h2>Log In</h2>
       <label for="username">Username</label>
-      <input id="username" name="username" required>
+      <input id="username" name="username" placeholder="Enter your username" required>
 
       <label for="password">Password</label>
-      <input id="password" name="password" type="password" required>
+      <input id="password" name="password" type="password" placeholder="Enter your password" required>
 
       <button type="submit">Log In</button>
     </form>
 
-    <h2 style="text-align:center;">Or</h2>
 
-    <form id="registerForm">
+    <div class="divider">Or</div>
+
+    <form id="registerForm" autocomplete="off">
       <h2>Create New User</h2>
       <label for="newUsername">Username</label>
-      <input id="newUsername" name="newUsername" required>
+      <input id="newUsername" name="newUsername" placeholder="Create a username" required>
 
       <label for="newPassword">Password</label>
-      <input id="newPassword" name="newPassword" type="password" required>
+      <input id="newPassword" name="newPassword" type="password" placeholder="Create a password" required>
 
-      <button type="submit">Register</button>
+      <button type="submit">Create Account</button>
     </form>
 
-    <div id="response"></div>
+    <p id="response" aria-live="polite"></p>
   </div>
 
   <script src="scripts.js"></script>

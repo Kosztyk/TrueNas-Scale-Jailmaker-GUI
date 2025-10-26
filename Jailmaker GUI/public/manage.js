@@ -22,8 +22,9 @@ if (!username) {
 }
 
 let allSandboxes = [];
-let allPaths = [];           // NEW: track all paths globally
+let allPaths = [];
 let selectedPath = null;
+let serverPassword = null; // <-- used by Connect SSH terminal
 
 /* ---------- theme ---------- */
 (function initTheme(){
@@ -188,7 +189,7 @@ showAllBtn.addEventListener('click', () => {
   showAllBtn.classList.add('active');
   displaySandboxes(allSandboxes);
 
-  // NEW: recompute status for ALL paths
+  // recompute status for ALL paths
   const allJailsFlat = flattenJails(allSandboxes);
   renderStatusBar(allJailsFlat, allPaths.length);
 });
@@ -205,6 +206,9 @@ async function fetchSandboxes() {
       return;
     }
 
+    // keep server password for Connect SSH sudo
+    serverPassword = (data.details && data.details.serverpass) ? data.details.serverpass : null;
+
     const oldChoice = selectedPath;
     pathsList.innerHTML = '';
     allSandboxes = data.sandboxes;
@@ -215,9 +219,9 @@ async function fetchSandboxes() {
       return aN.localeCompare(bN);
     });
 
-    // NEW: assign to global
     allPaths = [...new Set(allSandboxes.map(s => s.path))];
 
+    // path boxes
     allPaths.forEach(path => {
       const box = document.createElement('div');
       box.className = 'path-box';
@@ -233,10 +237,22 @@ async function fetchSandboxes() {
       pathsList.appendChild(box);
     });
 
-    // Build flat jail list for status bar + render
+    // ------- Left-pane "Connect SSH" (green) -------
+    const sshBtn = document.createElement('div');
+    sshBtn.className = 'path-box ssh-connect-btn';
+    sshBtn.textContent = 'Connect SSH';
+    Object.assign(sshBtn.style, {
+      backgroundColor: 'green', color: 'white', fontWeight: 'bold',
+      marginTop: '10px', cursor: 'pointer'
+    });
+    sshBtn.addEventListener('click', createSSHConsolePopup);
+    pathsList.appendChild(sshBtn);
+
+    // status bar (all)
     const jailList = flattenJails(allSandboxes);
     renderStatusBar(jailList, allPaths.length);
 
+    // restore selection
     if (oldChoice) {
       const re = [...pathsList.querySelectorAll('.path-box')].find(b => b.dataset.path === oldChoice);
       if (re) {
@@ -293,12 +309,10 @@ function renderStatusBar(jailList, pathCount){
     byDistro[key] = (byDistro[key] || 0) + 1;
   });
 
-  // sort by count desc, keep top 6
   const sorted = Object.entries(byDistro)
     .sort((a,b) => b[1]-a[1])
     .slice(0, 6);
 
-  // build pills
   const pills = [];
   pills.push(pill('Total Jails', total, '#22d3ee'));
   pills.push(pill('Paths', pathCount, '#f59e0b'));
@@ -384,6 +398,7 @@ function displaySandboxes(sandboxes) {
       }
 
       if (action === 'shell') {
+        // Provided elsewhere (e.g., enhancedTerminal.js)
         openSandboxShell(name, path, username);
         return;
       }
@@ -554,6 +569,148 @@ function confirmRemove(name, cb){
   }
 }
 
+/* ---------- Permanent SSH: Connect SSH popup ---------- */
+function createSSHConsolePopup() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;';
+  const popup = document.createElement('div');
+  Object.assign(popup.style, {
+    position: 'absolute', top: '10%', left: '30%', width: '60%', height: '80%',
+    // default (will be updated to match theme right after)
+    background: 'rgba(255,255,255,.9)',
+    borderRadius: '8px',
+    boxShadow: '0 0 10px rgba(0,0,0,0.3)', display: 'flex',
+    flexDirection: 'column', padding: '10px', resize: 'both', overflow: 'auto'
+  });
+
+  const title = document.createElement('h3');
+  title.textContent = 'Permanent SSH Terminal';
+  title.style.cursor = 'move';
+
+  const termWrap = document.createElement('div');
+  termWrap.style.cssText = 'flex:1;overflow:hidden;width:100%;height:100%';
+
+  const inputWrap = document.createElement('div');
+  inputWrap.style.cssText = 'display:flex;margin-top:10px';
+  const cmdInput = document.createElement('input');
+  cmdInput.type = 'text'; cmdInput.placeholder = 'Type your command...'; cmdInput.style.flex = '1';
+  const sendBtn = document.createElement('button'); sendBtn.textContent = 'Send'; sendBtn.style.marginLeft = '5px';
+  inputWrap.appendChild(cmdInput); inputWrap.appendChild(sendBtn);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close'; closeBtn.style.marginTop = '10px';
+
+  popup.appendChild(title);
+  popup.appendChild(termWrap);
+  popup.appendChild(inputWrap);
+  popup.appendChild(closeBtn);
+  overlay.appendChild(popup);
+  document.body.appendChild(overlay);
+
+  // draggable (unchanged)
+  title.addEventListener('mousedown', (e) => {
+    e.preventDefault(); let lx=e.clientX, ly=e.clientY;
+    const mm = (ev) => { const dx=ev.clientX-lx, dy=ev.clientY-ly; lx=ev.clientX; ly=ev.clientY;
+      popup.style.top = (popup.offsetTop+dy)+'px'; popup.style.left=(popup.offsetLeft+dx)+'px'; };
+    const mu = () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); };
+    document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+  });
+
+  // Theme once (no observers, no API footguns)
+  const light = document.body.classList.contains('theme-light');
+  const termThemeLight = { background:'#ffffff', foreground:'#111827' };
+  const termThemeDark  = { background:'#1e1e1e', foreground:'#cccccc' };
+  if (light) {
+    popup.style.background = 'rgba(255,255,255,.95)';
+    popup.style.color = '#111827';
+  } else {
+    popup.style.background = 'rgba(15,23,42,.95)';
+    popup.style.color = '#e5e7eb';
+  }
+
+  // WS
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${proto}://${location.host}/ws/permanentSsh?username=${encodeURIComponent(username)}`;
+  const ws = new WebSocket(wsUrl);
+
+  // xterm.js (unchanged visuals; theme applied below safely)
+  const term = new Terminal({ convertEol:false, scrollback:1000, cursorBlink:true, theme: light ? termThemeLight : termThemeDark });
+  term.open(termWrap);
+  let fitAddon;
+  try {
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    fitAddon.fit();
+  } catch (e) {
+    // If FitAddon is not available, keep going without it
+  }
+
+  // Safe theme setter (works on new & old xterm)
+  try {
+    if (term.options) {
+      term.options.theme = light ? termThemeLight : termThemeDark;
+    }
+  } catch (_) {}
+
+  const sendResize = () => {
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type:'resize', cols:term.cols, rows:term.rows }));
+      }
+    } catch (_){}
+  };
+  window.addEventListener('resize', () => { try { fitAddon && fitAddon.fit(); } catch(_){} sendResize(); });
+
+  // Never freeze: if WS doesn't open in time, show a note and keep close working
+  const wsOpenTimeout = setTimeout(() => {
+    try { term.write('\r\n[Connection timeout: server did not open the session]\r\n'); } catch(_){}
+  }, 8000);
+
+  let closed = false;
+  function safeClose() {
+    if (closed) return;
+    closed = true;
+    clearTimeout(wsOpenTimeout);
+    try { ws.close(); } catch {}
+    try { overlay.remove(); } catch {}
+  }
+
+  term.onData(d => { if (ws.readyState===WebSocket.OPEN) { try { ws.send(d); } catch(_){} } });
+
+  ws.onopen = () => {
+    clearTimeout(wsOpenTimeout);
+    term.write('\r\n[Connected to permanent SSH session]\r\n');
+    sendResize();
+    try { ws.send("stty erase '^?'\n"); } catch(_){}
+    if (typeof serverPassword !== 'undefined' && serverPassword) {
+      try { ws.send(`echo ${serverPassword} | sudo -S -p '' /bin/bash -i\n`); } catch(_){}
+    }
+  };
+  ws.onmessage = (e) => { try { term.write(e.data); } catch(_){} };
+  ws.onclose   = () => { try { term.write('\r\n[SSH session closed]\r\n'); } catch(_){} };
+  ws.onerror   = (err) => { try { term.write(`\r\n[WebSocket error]\r\n`); } catch(_){} };
+
+  const sendCommand = () => {
+    const cmd = cmdInput.value + '\r\n'; cmdInput.value = '';
+    if (ws.readyState === WebSocket.OPEN) {
+      try { ws.send(cmd); } catch(_) { term.write('\r\n[Error: WebSocket send failed]\r\n'); }
+    } else {
+      term.write('\r\n[Error: WebSocket not open]\r\n');
+    }
+  };
+  cmdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendCommand(); } });
+  sendBtn.addEventListener('click', sendCommand);
+
+  // Always closable (even if WS is stuck connecting)
+  closeBtn.addEventListener('click', safeClose);
+  // Escape to close
+  const onKey = (e) => { if (e.key === 'Escape') safeClose(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) safeClose(); });
+}
+
+
 /* kick off */
 fetchSandboxes();
+
 
