@@ -9,8 +9,8 @@
  * - Distros/Releases file endpoints
  * - List sandboxes (jlmkr.py list on each path)
  * - Control actions: start/stop/restart/remove
- *   - Legacy REST: /api/controlSandbox  (REMOVE fixed: pipes name)
- *   - Streaming: /api/controlSandboxStream + WS /ws/actionLogs (REMOVE fixed: pipes name)
+ *   - Legacy REST: /api/controlSandbox
+ *   - Streaming: /api/controlSandboxStream + WS /ws/actionLogs
  * - Run arbitrary SSH command
  *   - Legacy REST: /api/runSSHCommand
  *   - Streaming: /api/runSSHCommandStream + WS /ws/actionLogs
@@ -31,6 +31,11 @@ const { EventEmitter } = require('events');
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Safe single-quote for POSIX shells: wrap in '...' and escape existing '
+function sq(str = '') {
+  return `'${String(str).replace(/'/g, `'\\''`)}'`;
+}
 
 /* -----------------------------
    PostgreSQL connection
@@ -165,6 +170,19 @@ async function runSSHEphemeral(username, command) {
       });
   });
 }
+
+// Public: check if at least one user exists
+app.get('/api/hasUsers', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT COUNT(*)::int AS c FROM users');
+    const count = r.rows[0]?.c ?? 0;
+    res.json({ hasUsers: count > 0, count });
+  } catch (err) {
+    console.error('[hasUsers]', err);
+    res.status(500).json({ hasUsers: false, count: 0, error: 'DB error' });
+  }
+});
+
 
 /* -----------------------------
    Static + distros/releases
@@ -310,7 +328,7 @@ app.get('/api/getSandboxes', async (req, res) => {
       .on('ready', () => {
         let done = 0;
         paths.forEach((p) => {
-          const cmd = `sudo -S sh -c "cd ${p} && ./jlmkr.py list"`;
+          const cmd = `sudo -S sh -c "cd ${p} && ./jlmkr.py list"`; // listing works as-is for you
           ssh.exec(cmd, { pty: true }, (err, stream) => {
             if (err) {
               results.push({ path: p, output: `Error: ${err.message}` });
@@ -354,16 +372,16 @@ app.post('/api/controlSandbox', async (req, res) => {
     return res.json({ success: false, message: 'Action, sandbox name, path, and username are required.' });
   }
   try {
-    // robust single-quote escaping for POSIX shell
-    const safeName = String(name).replace(/'/g, `'\"'\"'`);
-    const safePath = String(jailPath).replace(/'/g, `'\"'\"'`);
-    let cmd;
+    // Normalize client-provided path: convert "\ " to real space
+    const normPath = String(jailPath).replace(/\\ /g, ' ');
+    const normName = String(name);
 
+    let cmd;
     if (action === 'remove') {
-      // FIX: pipe the jail name to satisfy input() confirmation
-      cmd = `cd '${safePath}' && printf '%s\\n' '${safeName}' | ./jlmkr.py remove '${safeName}'`;
+      // jlmkr.py remove asks for the name via input(); pipe it
+      cmd = `cd -- ${sq(normPath)} && printf '%s\\n' ${sq(normName)} | ./jlmkr.py remove ${sq(normName)}`;
     } else {
-      cmd = `cd '${safePath}' && ./jlmkr.py ${action} '${safeName}'`;
+      cmd = `cd -- ${sq(normPath)} && ./jlmkr.py ${action} ${sq(normName)}`;
     }
 
     const out = await runSSHEphemeral(username, cmd);
@@ -406,15 +424,14 @@ app.post('/api/controlSandboxStream', async (req, res) => {
   }
   const em = getActionEmitter(actionId);
   try {
-    const safeName = String(name).replace(/'/g, `'\"'\"'`);
-    const safePath = String(jailPath).replace(/'/g, `'\"'\"'`);
-    let cmd;
+    const normPath = String(jailPath).replace(/\\ /g, ' ');
+    const normName = String(name);
 
+    let cmd;
     if (action === 'remove') {
-      // FIX: pipe the jail name to satisfy input() confirmation
-      cmd = `cd '${safePath}' && printf '%s\\n' '${safeName}' | ./jlmkr.py remove '${safeName}'`;
+      cmd = `cd -- ${sq(normPath)} && printf '%s\\n' ${sq(normName)} | ./jlmkr.py remove ${sq(normName)}`;
     } else {
-      cmd = `cd '${safePath}' && ./jlmkr.py ${action} '${safeName}'`;
+      cmd = `cd -- ${sq(normPath)} && ./jlmkr.py ${action} ${sq(normName)}`;
     }
 
     runSSHStreaming(username, cmd, em)
@@ -643,7 +660,7 @@ wss.on('connection', async (ws, req) => {
             stream.stderr.on('data', (d) => ws.send(d.toString('utf-8')));
             stream.on('close', () => { ws.close(); ssh.end(); });
 
-            // enter jail
+            // enter jail (kept as-is; adjust if needed later)
             setTimeout(() => {
               stream.write(`stty erase '^?'\n`);
               stream.write(`cd ${jailPath.replace(/\/$/, '')} && sudo ./jlmkr.py shell ${sandboxName}\n`);
